@@ -9,7 +9,7 @@ const https = require('https');
 
 // Configuration
 const MAPBOX_TOKEN = process.env.MAPBOX_TOKEN || process.env.REACT_APP_MAPBOX_TOKEN;
-const CSV_FILE_PATH = './public/ResearchFocus1.csv';
+const CSV_FILE_PATH = './public/ResearchFocus.csv';
 const OUTPUT_FILE_PATH = './geocoded-addresses.json';
 const PUBLIC_OUTPUT_PATH = './public/geocoded-addresses.json';
 const BATCH_SIZE = 5; // Process 5 addresses at a time
@@ -171,11 +171,25 @@ async function geocodeAllAddresses() {
         }
         break;
       case 'campus':
-        // Campus addresses need geocoding
-        address = addressData;
-        if (!geocodedResults[address]) {
-          needsGeocoding = true;
-          addressesToGeocode.push({ address, mapCategory });
+        // Campus addresses - check if it's coordinates first
+        const campusCoords = parseCoordinates(addressData);
+        if (campusCoords) {
+          // It's coordinates, use them directly
+          geocodedResults[addressData] = {
+            address: addressData,
+            lat: campusCoords.lat,
+            lng: campusCoords.lng,
+            mapCategory,
+            method: 'coordinates',
+            timestamp: new Date().toISOString()
+          };
+        } else {
+          // It's an address, needs geocoding
+          address = addressData;
+          if (!geocodedResults[address]) {
+            needsGeocoding = true;
+            addressesToGeocode.push({ address, mapCategory });
+          }
         }
         break;
     }
