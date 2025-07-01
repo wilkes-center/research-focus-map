@@ -40,11 +40,24 @@ async function loadGeocodedAddresses(): Promise<Record<string, { lat: number; ln
   }
 
   try {
-    const response = await fetch('/geocoded-addresses.json');
+    // Use PUBLIC_URL for correct path in production builds
+    const geocodedPath = `${process.env.PUBLIC_URL || ''}/geocoded-addresses.json`;
+    console.log('Attempting to fetch geocoded addresses from:', geocodedPath);
+    
+    const response = await fetch(geocodedPath);
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
-    geocodedCache = await response.json();
+    const geocodedData = await response.json();
+    
+    // Transform the geocoded data to the expected format
+    geocodedCache = {};
+    Object.entries(geocodedData).forEach(([address, data]: [string, any]) => {
+      if (data && typeof data.lat === 'number' && typeof data.lng === 'number') {
+        geocodedCache![address] = { lat: data.lat, lng: data.lng };
+      }
+    });
+    
     console.log(`📍 Loaded ${Object.keys(geocodedCache || {}).length} pre-geocoded addresses`);
     return geocodedCache || {};
   } catch (error) {
@@ -178,7 +191,7 @@ export const getCacheStats = () => {
 export const loadResearchFocusData = async (): Promise<ResearchArea[]> => {
   try {
     // Use PUBLIC_URL for correct path in production builds
-    const csvPath = `${process.env.PUBLIC_URL || ''}/ResearchFocus1.csv`;
+    const csvPath = `${process.env.PUBLIC_URL || ''}/ResearchFocus.csv`;
     console.log('Attempting to fetch CSV from:', csvPath);
     
     const response = await fetch(csvPath);

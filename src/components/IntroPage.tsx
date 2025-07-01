@@ -76,7 +76,7 @@ const IntroPage: React.FC<IntroPageProps> = ({ onComplete }) => {
                 $active={activeSection === 'about'}
                 onClick={() => setActiveSection('about')}
               >
-                <Info size={20} className="mr-3" />
+                <Info size={24} />
                 <span>About</span>
                 {activeSection === 'about' && <TabIndicator />}
               </TabButton>
@@ -85,7 +85,7 @@ const IntroPage: React.FC<IntroPageProps> = ({ onComplete }) => {
                 $active={activeSection === 'howto'}
                 onClick={() => setActiveSection('howto')}
               >
-                <HelpCircle size={20} className="mr-3" />
+                <HelpCircle size={24} />
                 <span>How to Use</span>
                 {activeSection === 'howto' && <TabIndicator />}
               </TabButton>
@@ -94,7 +94,7 @@ const IntroPage: React.FC<IntroPageProps> = ({ onComplete }) => {
                 $active={activeSection === 'feedback'}
                 onClick={() => setActiveSection('feedback')}
               >
-                <MessageSquare size={20} className="mr-3" />
+                <MessageSquare size={24} />
                 <span>Feedback</span>
                 {activeSection === 'feedback' && <TabIndicator />}
               </TabButton>
@@ -115,9 +115,6 @@ const IntroPage: React.FC<IntroPageProps> = ({ onComplete }) => {
                   This map visualizes the geographic focus of Wilkes Scholars and their research activities across different institutions and locations. The interactive visualization displays research areas, academic departments, and scholarly work distribution, helping to understand the geographic scope and institutional connections of the Wilkes Center community.
                 </Paragraph>
 
-                <Paragraph>
-                  Explore different research categories, time periods, and institution types to discover patterns in scholarly engagement and geographic distribution of Wilkes Center research initiatives.
-                </Paragraph>
               </ContentCard>
             </CenteredContainer>
           )}
@@ -389,15 +386,17 @@ const TabWrapper = styled.div`
 `;
 
 const TabButton = styled.button<TabButtonProps>`
-  padding: 0.75rem 2rem;
+  padding: 1rem 2.5rem;
   border-radius: 0.5rem;
   display: flex;
   align-items: center;
+  gap: 0.75rem;
   transition: all 0.2s;
   border: none;
   cursor: pointer;
   position: relative;
   font-family: 'Sora', sans-serif;
+  font-size: 16px;
   background-color: ${props => props.$active ? 'rgba(153, 170, 136, 0.3)' : 'transparent'};
   color: ${props => props.$active ? '#2d5954' : 'rgba(45, 89, 84, 0.7)'};
   font-weight: ${props => props.$active ? '600' : '400'};

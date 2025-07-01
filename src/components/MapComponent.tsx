@@ -114,8 +114,8 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
   const [isUofUFocused, setIsUofUFocused] = useState(false);
   const [hoveredMarkerId, setHoveredMarkerId] = useState<string | null>(null);
   const [viewState, setViewState] = useState({
-    longitude: -20.0,
-    latitude: 20.0,
+    longitude: 20,
+    latitude: 0,
     zoom: 1.5
   });
 
@@ -140,6 +140,12 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
     }
   }, [viewState.zoom, isUofUFocused]);
 
+  // Determine map style - using street view style for detailed street information
+  const getMapStyle = () => {
+    // Use streets style for better street-level detail
+    return 'mapbox://styles/mapbox/streets-v12';
+  };
+
   const handleUtahView = () => {
     setIsUofUFocused(false);
     closeSidePanel();
@@ -154,9 +160,9 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
     setIsUofUFocused(true);
     closeSidePanel();
     setViewState({
-      longitude: -111.8400,
+      longitude: -111.8360,
       latitude: 40.7640,
-      zoom: 15
+      zoom: 14.9
     });
   };
 
@@ -164,8 +170,8 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
     setIsUofUFocused(false);
     closeSidePanel();
     setViewState({
-      longitude: -20.0,
-      latitude: 20.0,
+      longitude: 20,
+      latitude: 0,
       zoom: 1.5
     });
   };
@@ -311,11 +317,12 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
           {...viewState}
           onMove={evt => setViewState(evt.viewState)}
           style={{ width: '100%', height: '100vh' }}
-          mapStyle="mapbox://styles/pkulandh/cm9ixhfov00jn01rc8gki9yb8"
+          mapStyle={getMapStyle()}
           mapboxAccessToken={process.env.REACT_APP_MAPBOX_TOKEN}
           renderWorldCopies={true}
-          minZoom={0}
+          minZoom={1}
           maxZoom={20}
+          projection={{ name: 'mercator' }}
         >
           {/* Enhanced clustered research area markers */}
           {clusteredMarkers
