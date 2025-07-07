@@ -22,12 +22,12 @@ const IntroPage: React.FC<IntroPageProps> = ({ onComplete }) => {
   const [logoError, setLogoError] = useState(false);
 
   const handleLogoError = () => {
-    console.error('Failed to load logo from /logo192.png');
+    console.error('Failed to load favicon');
     setLogoError(true);
   };
 
   const handleLogoLoad = () => {
-    console.log('Logo loaded successfully from /logo192.png');
+    console.log('Favicon loaded successfully');
     setLogoError(false);
   };
 
@@ -49,7 +49,7 @@ const IntroPage: React.FC<IntroPageProps> = ({ onComplete }) => {
                 <LogoFallback>LOGO</LogoFallback>
               ) : (
                 <LogoImage 
-                  src={`${process.env.PUBLIC_URL}/logo192.png`} 
+                  src={`${process.env.PUBLIC_URL}/favicon-32x32.png`}
                   alt="Wilkes Center Research Focus Map Logo"
                   onError={handleLogoError}
                   onLoad={handleLogoLoad}

@@ -13,6 +13,8 @@ interface CategoryFilterProps {
   types: string[];
   selectedFilters: FilterState;
   onFiltersChange: (filters: FilterState) => void;
+  matchingAreasCount: number;
+  totalAreasCount: number;
 }
 
 const CategoryFilter: React.FC<CategoryFilterProps> = ({ 
@@ -20,7 +22,9 @@ const CategoryFilter: React.FC<CategoryFilterProps> = ({
   terms, 
   types, 
   selectedFilters, 
-  onFiltersChange 
+  onFiltersChange,
+  matchingAreasCount,
+  totalAreasCount
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
 
@@ -277,30 +281,56 @@ const CategoryFilter: React.FC<CategoryFilterProps> = ({
             Filters
           </h3>
           {isExpanded && (
-            <p style={{
-              margin: '0',
-              fontSize: '13px',
-              color: '#1a1a1a',
-              fontWeight: '400',
-              opacity: 0.7
+            <div style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '4px'
             }}>
-              {totalSelected > 0 ? `${totalSelected} filters active` : 'No filters applied'}
-            </p>
+              <p style={{
+                margin: '0',
+                fontSize: '13px',
+                color: '#1a1a1a',
+                fontWeight: '400',
+                opacity: 0.7
+              }}>
+                {totalSelected > 0 ? `${totalSelected} filters active` : 'No filters applied'}
+              </p>
+              <p style={{
+                margin: '0',
+                fontSize: '13px',
+                color: totalSelected > 0 ? '#dd3b00' : '#1a1a1a',
+                fontWeight: '600'
+              }}>
+                {matchingAreasCount} of {totalAreasCount} projects
+              </p>
+            </div>
           )}
-          {!isExpanded && totalSelected > 0 && (
-            <span style={{
-              backgroundColor: '#dd3b00',
-              color: '#f9f6ef',
-              fontSize: '10px',
-              fontWeight: '600',
-              padding: '2px 6px',
-              borderRadius: '2px',
-              marginLeft: '8px',
-              textTransform: 'uppercase',
-              letterSpacing: '0.05em'
-            }}>
-              {totalSelected}
-            </span>
+          {!isExpanded && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              {totalSelected > 0 && (
+                <>
+                  <span style={{
+                    backgroundColor: '#dd3b00',
+                    color: '#f9f6ef',
+                    fontSize: '10px',
+                    fontWeight: '600',
+                    padding: '2px 6px',
+                    borderRadius: '2px',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.05em'
+                  }}>
+                    {totalSelected}
+                  </span>
+                  <span style={{
+                    fontSize: '11px',
+                    color: '#dd3b00',
+                    fontWeight: '600'
+                  }}>
+                    {matchingAreasCount}/{totalAreasCount} projects
+                  </span>
+                </>
+              )}
+            </div>
           )}
         </div>
         

@@ -63,7 +63,7 @@ dist
 
 # Gatsby files
 .cache/
-public
+# public  # Commented out - this is a React app, not Gatsby, so public folder should be committed
 
 # Storybook build outputs
 .out
@@ -95,5 +95,5 @@ Thumbs.db
 # Optional stylelint cache
 .stylelintcache
 
-# Geocoded addresses data (can be regenerated)
-geocoded-addresses.json
+# Geocoded addresses data (can be regenerated) - only ignore root level
+/geocoded-addresses.json

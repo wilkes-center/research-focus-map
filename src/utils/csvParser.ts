@@ -29,41 +29,36 @@ interface GeocodedData {
 }
 
 // Cache for geocoded addresses
-let geocodedCache: Record<string, { lat: number; lng: number }> | null = null;
+let geocodedCache: GeocodedData | null = null;
 
 /**
  * Loads pre-geocoded addresses from JSON file
  */
-async function loadGeocodedAddresses(): Promise<Record<string, { lat: number; lng: number }>> {
+async function loadGeocodedAddresses(): Promise<GeocodedData> {
   if (geocodedCache) {
     return geocodedCache;
   }
 
   try {
     // Use PUBLIC_URL for correct path in production builds
-    const geocodedPath = `${process.env.PUBLIC_URL || ''}/geocoded-addresses.json`;
-    console.log('Attempting to fetch geocoded addresses from:', geocodedPath);
+    const geocodedPath = `${process.env.PUBLIC_URL}/geocoded-addresses.json`;
+    console.log('🔍 Loading geocoded addresses from:', geocodedPath);
     
     const response = await fetch(geocodedPath);
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
-    const geocodedData = await response.json();
     
-    // Transform the geocoded data to the expected format
-    geocodedCache = {};
-    Object.entries(geocodedData).forEach(([address, data]: [string, any]) => {
-      if (data && typeof data.lat === 'number' && typeof data.lng === 'number') {
-        geocodedCache![address] = { lat: data.lat, lng: data.lng };
-      }
-    });
-    
+    const data = await response.json();
+    geocodedCache = data as GeocodedData;
     console.log(`📍 Loaded ${Object.keys(geocodedCache || {}).length} pre-geocoded addresses`);
-    return geocodedCache || {};
+    return geocodedCache;
   } catch (error) {
-    console.warn('⚠️ Could not load pre-geocoded addresses:', error);
-    geocodedCache = {};
-    return {};
+    console.error('⚠️ Could not load pre-geocoded addresses:', error);
+    console.error('Current PUBLIC_URL:', process.env.PUBLIC_URL);
+    const emptyCache: GeocodedData = {};
+    geocodedCache = emptyCache;
+    return emptyCache;
   }
 }
 
@@ -74,22 +69,46 @@ const getCoordinates = async (address: string, mapCategory: string): Promise<{ l
     geocodedCache = await loadGeocodedAddresses();
   }
 
-  // Check pre-geocoded data
-  if (geocodedCache[address]) {
-    return geocodedCache[address];
-  }
-
-  // Check if address contains coordinates
+  // First check if this is a raw coordinate string
   const coords = parseCoordinates(address);
   if (coords) {
-    geocodedCache[address] = coords;
+    // If these are raw coordinates, look up by coordinates to see if we have a geocoded entry
+    const coordKey = `${coords.lat}, ${coords.lng}`;
+    if (geocodedCache[coordKey]) {
+      const data = geocodedCache[coordKey];
+      return { lat: data.lat, lng: data.lng };
+    }
+    // If no geocoded entry found, use the raw coordinates
     return coords;
+  }
+
+  // For campus addresses, first try to find a geocoded address that matches
+  if (mapCategory === 'Campus') {
+    // Try to find a matching geocoded address by normalizing and comparing
+    const normalizedAddress = address.toLowerCase().replace(/\s+/g, ' ').trim();
+    const geocodedEntry = Object.entries(geocodedCache).find(([key, data]) => {
+      if (data && data.mapCategory === 'campus') {
+        const normalizedKey = key.toLowerCase().replace(/\s+/g, ' ').trim();
+        return normalizedKey === normalizedAddress;
+      }
+      return false;
+    });
+
+    if (geocodedEntry) {
+      const [_, data] = geocodedEntry;
+      return { lat: data.lat, lng: data.lng };
+    }
+  }
+
+  // Check pre-geocoded data for exact match
+  if (geocodedCache[address]) {
+    const data = geocodedCache[address];
+    return { lat: data.lat, lng: data.lng };
   }
 
   // If no pre-geocoded data found, use fallback
   console.warn(`⚠️  Address not found in pre-geocoded data: ${address}`);
   const fallbackCoords = { lat: 40.76407, lng: -111.84360 }; // Campus center
-  geocodedCache[address] = fallbackCoords;
   return fallbackCoords;
 };
 
@@ -200,7 +219,11 @@ export const loadResearchFocusData = async (): Promise<ResearchArea[]> => {
     }
     
     const csvText = await response.text();
+    console.log('CSV text length:', csvText.length);
+    
     const csvData = await parseCSVText(csvText);
+    console.log('Parsed CSV data entries:', csvData.length);
+    console.log('First CSV row:', csvData[0]);
     
     console.log('Starting to process research areas...');
     
@@ -211,6 +234,9 @@ export const loadResearchFocusData = async (): Promise<ResearchArea[]> => {
     const startTime = Date.now();
     const researchAreas = await parseResearchFocusCSV(csvData);
     const endTime = Date.now();
+    
+    console.log('Raw research areas from parser:', researchAreas.length);
+    console.log('Sample research area:', researchAreas[0]);
     
     // Log final cache statistics
     const finalCacheStats = getCacheStats();

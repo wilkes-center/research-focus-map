@@ -22,88 +22,59 @@ interface MarkerCluster {
   isCluster: boolean;
 }
 
-// Clustering function to group nearby markers
+// Enhanced clustering function that considers zoom level and visual proximity
 const clusterMarkers = (areas: ResearchArea[], zoom: number): MarkerCluster[] => {
-  if (zoom >= 10) {
-    // At high zoom levels, group markers by exact coordinates
-    const coordinateGroups: { [key: string]: ResearchArea[] } = {};
-    
-    areas.forEach(area => {
-      const key = `${area.longitude.toFixed(6)},${area.latitude.toFixed(6)}`;
-      if (!coordinateGroups[key]) {
-        coordinateGroups[key] = [];
-      }
-      coordinateGroups[key].push(area);
-    });
-    
-    const clusters: MarkerCluster[] = [];
-    let clusterIndex = 0;
-    
-    Object.entries(coordinateGroups).forEach(([key, groupAreas]: [string, ResearchArea[]]) => {
-      if (groupAreas.length === 1) {
-        // Single marker
-        clusters.push({
-          id: `marker-${clusterIndex}`,
-          longitude: groupAreas[0].longitude,
-          latitude: groupAreas[0].latitude,
-          areas: groupAreas,
-          isCluster: false
-        });
-      } else {
-        // Multiple markers at same coordinates - create a clustered marker
-        clusters.push({
-          id: `exact-cluster-${clusterIndex}`,
-          longitude: groupAreas[0].longitude,
-          latitude: groupAreas[0].latitude,
-          areas: groupAreas,
-          isCluster: true
-        });
-      }
-      clusterIndex++;
-    });
-    
-    return clusters;
-  }
+  // Calculate clustering distance based on zoom level
+  // Much more precise distances at high zoom levels for campus
+  const getClusterDistance = (zoom: number): number => {
+    if (zoom <= 3) return 2.0;     // Very wide clustering for world view
+    if (zoom <= 5) return 1.0;     // Wide clustering for country/state view
+    if (zoom <= 6) return 0.1;     // Much tighter clustering starting at level 6
+    if (zoom <= 8) return 0.05;    // Very tight clustering for regional view
+    if (zoom <= 10) return 0.02;   // Extremely tight clustering for city view
+    if (zoom <= 12) return 0.01;   // Ultra precise for campus area
+    if (zoom <= 14) return 0.005;  // Super precise for campus view - only very close markers
+    return 0.001;                  // Extremely precise for detailed campus view - only overlapping markers
+  };
 
-  // Improved clustering distance based on zoom level for lower zoom levels
-  const clusterDistance = zoom < 2 ? 5 : zoom < 4 ? 2 : zoom < 6 ? 0.5 : zoom < 8 ? 0.25 : 0.1;
+  const clusterDistance = getClusterDistance(zoom);
   const clusters: MarkerCluster[] = [];
-  const processedAreas = new Set<number>();
-
+  const processed = new Set<number>();
+  
   areas.forEach((area, index) => {
-    if (processedAreas.has(index)) return;
-
-    const nearbyAreas = [area];
-    processedAreas.add(index);
-
-    // Find nearby areas to cluster
+    if (processed.has(index)) return;
+    
+    // Find all areas within clustering distance
+    const nearbyAreas: ResearchArea[] = [area];
+    processed.add(index);
+    
     areas.forEach((otherArea, otherIndex) => {
-      if (otherIndex === index || processedAreas.has(otherIndex)) return;
-
-      const distance = Math.sqrt(
-        Math.pow(area.longitude - otherArea.longitude, 2) +
-        Math.pow(area.latitude - otherArea.latitude, 2)
-      );
-
+      if (processed.has(otherIndex) || index === otherIndex) return;
+      
+      // Calculate distance between points
+      const latDiff = Math.abs(area.latitude - otherArea.latitude);
+      const lngDiff = Math.abs(area.longitude - otherArea.longitude);
+      const distance = Math.sqrt(latDiff * latDiff + lngDiff * lngDiff);
+      
       if (distance <= clusterDistance) {
         nearbyAreas.push(otherArea);
-        processedAreas.add(otherIndex);
+        processed.add(otherIndex);
       }
     });
-
-    // Calculate cluster center
-    const centerLng = nearbyAreas.reduce((sum, a) => sum + a.longitude, 0) / nearbyAreas.length;
-    const centerLat = nearbyAreas.reduce((sum, a) => sum + a.latitude, 0) / nearbyAreas.length;
-
+    
+    // Calculate cluster center (average position)
+    const avgLng = nearbyAreas.reduce((sum, a) => sum + a.longitude, 0) / nearbyAreas.length;
+    const avgLat = nearbyAreas.reduce((sum, a) => sum + a.latitude, 0) / nearbyAreas.length;
+    
     clusters.push({
-      id: `cluster-${index}`,
-      longitude: centerLng,
-      latitude: centerLat,
+      id: `cluster-${clusters.length}`,
+      longitude: avgLng,
+      latitude: avgLat,
       areas: nearbyAreas,
       isCluster: nearbyAreas.length > 1
     });
   });
-
+  
   return clusters;
 };
 
@@ -114,9 +85,9 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
   const [isUofUFocused, setIsUofUFocused] = useState(false);
   const [hoveredMarkerId, setHoveredMarkerId] = useState<string | null>(null);
   const [viewState, setViewState] = useState({
-    longitude: 20,
-    latitude: 0,
-    zoom: 1.5
+    longitude: 0,
+    latitude: 20,
+    zoom: 2
   });
 
   // Filter areas based on selected filters
@@ -128,10 +99,29 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
     return departmentMatch && termMatch && typeMatch;
   });
 
-  // Create clustered markers based on current zoom level
+  // Create stable clustered markers (not dependent on zoom level)
   const clusteredMarkers = useMemo(() => {
-    return clusterMarkers(filteredAreas, viewState.zoom);
-  }, [filteredAreas, viewState.zoom]);
+    const markers = clusterMarkers(filteredAreas, viewState.zoom);
+    
+    // Filter for campus view and log info
+    if (isUofUFocused) {
+      // First, filter out any clusters that don't have any campus markers
+      const campusMarkers = markers.filter(m => m.areas.some(a => a.mapFocus === 'Campus'));
+      
+      // Then, for each cluster, only keep the campus markers within it
+      const pureCampusMarkers = campusMarkers.map(marker => ({
+        ...marker,
+        areas: marker.areas.filter(area => area.mapFocus === 'Campus'),
+        isCluster: marker.areas.filter(area => area.mapFocus === 'Campus').length > 1
+      }));
+      
+      const clusteredCampus = pureCampusMarkers.filter(m => m.isCluster);
+      console.log(`🏛️ Campus View - ${pureCampusMarkers.length} total campus markers, ${clusteredCampus.length} are clusters (zoom: ${viewState.zoom.toFixed(1)})`);
+      return pureCampusMarkers;
+    }
+    
+    return markers;
+  }, [filteredAreas, viewState.zoom, isUofUFocused]);
 
   // Reset UofU focus when zooming out
   React.useEffect(() => {
@@ -184,36 +174,24 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
 
   const handleClusterClick = (cluster: MarkerCluster) => {
     if (cluster.isCluster) {
-      // Check if all areas in the cluster have the same coordinates
-      const firstArea = cluster.areas[0];
-      const allSameCoordinates = cluster.areas.every(area => 
-        Math.abs(area.longitude - firstArea.longitude) < 0.000001 &&
-        Math.abs(area.latitude - firstArea.latitude) < 0.000001
-      );
-
-      if (allSameCoordinates) {
-        // All markers at same location, show cluster in side panel
+      // For proximity clusters, decide whether to zoom in or show cluster panel
+      if (viewState.zoom < 12) {
+        // At lower zoom levels, zoom in to separate the markers
+        setViewState({
+          ...viewState,
+          longitude: cluster.longitude,
+          latitude: cluster.latitude,
+          zoom: Math.min(viewState.zoom + 3, 15)
+        });
+      } else {
+        // At higher zoom levels, show cluster panel
         setSelectedCluster(cluster);
         setSelectedArea(null);
         setSidePanelOpen(true);
-      } else {
-        // Markers at different locations, zoom in on cluster
-        setViewState({
-          longitude: cluster.longitude,
-          latitude: cluster.latitude,
-          zoom: Math.min(viewState.zoom + 2, 15)
-        });
       }
     } else {
-      // Single marker, zoom to location and show in side panel
-      setViewState({
-        longitude: cluster.longitude,
-        latitude: cluster.latitude,
-        zoom: Math.max(viewState.zoom, 6)
-      });
-      setSelectedArea(cluster.areas[0]);
-      setSelectedCluster(null);
-      setSidePanelOpen(true);
+      // Single marker - show area details
+      handleProjectClick(cluster.areas[0]);
     }
   };
 
@@ -227,79 +205,61 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
     if (areas.length === 1) {
       return getDepartmentColor(areas[0].category);
     }
-    // For clusters, use a mixed color or default
-    const departments = Array.from(new Set(areas.map(a => a.category)));
-    if (departments.length === 1) {
-      return getDepartmentColor(departments[0]);
-    }
-    return '#1a1a1a'; // Olympic Park Obsidian for mixed departments
+    
+    // For clusters, use the most common department color
+    const deptCounts: { [key: string]: number } = {};
+    areas.forEach(area => {
+      deptCounts[area.category] = (deptCounts[area.category] || 0) + 1;
+    });
+    
+    const mostCommonDept = Object.entries(deptCounts).reduce((a, b) => a[1] > b[1] ? a : b)[0];
+    return getDepartmentColor(mostCommonDept);
   };
 
-  // Enhanced marker styling function
   const getMarkerStyles = (cluster: MarkerCluster, isHovered: boolean = false) => {
     const baseColor = getClusterColor(cluster.areas);
-    const isCluster = cluster.isCluster;
-    const count = cluster.areas.length;
+    const size = cluster.isCluster ? 
+      Math.min(60, Math.max(30, 20 + cluster.areas.length * 3)) : 
+      28;
     
-    if (isCluster) {
-      // Cluster marker styling
-      const size = Math.min(28 + count * 3, 64);
-      return {
-        width: `${size}px`,
-        height: `${size}px`,
-        borderRadius: '50%',
-        background: `linear-gradient(135deg, ${baseColor} 0%, ${baseColor}dd 100%)`,
-        border: `3px solid #f9f6ef`,
-        boxShadow: isHovered 
-          ? `0 8px 20px rgba(26,26,26,0.4), 0 0 0 4px ${baseColor}20` 
-          : `0 4px 12px rgba(26,26,26,0.25), 0 2px 4px rgba(26,26,26,0.1)`,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        fontSize: count > 99 ? '10px' : count > 9 ? '12px' : '14px',
-        fontWeight: '700',
-        color: '#f9f6ef',
-        cursor: 'pointer',
-        transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-        transform: isHovered ? 'scale(1.15) translateY(-2px)' : 'scale(1)',
-        fontFamily: 'Sora, sans-serif',
-        letterSpacing: '0.02em',
-        position: 'relative' as const,
-        zIndex: isHovered ? 1000 : 1,
-      };
-    } else {
-      // Single marker styling
-      return {
-        width: '36px',
-        height: '36px',
-        borderRadius: '50%',
-        background: `linear-gradient(135deg, ${baseColor} 0%, ${baseColor}dd 100%)`,
-        border: `3px solid #f9f6ef`,
-        boxShadow: isHovered 
-          ? `0 8px 20px rgba(26,26,26,0.4), 0 0 0 4px ${baseColor}20` 
-          : `0 4px 12px rgba(26,26,26,0.25), 0 2px 4px rgba(26,26,26,0.1)`,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        cursor: 'pointer',
-        transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-        transform: isHovered ? 'scale(1.15) translateY(-2px)' : 'scale(1)',
-        fontFamily: 'Sora, sans-serif',
-        position: 'relative' as const,
-        zIndex: isHovered ? 1000 : 1,
-      };
-    }
+    const scale = isHovered ? 1.1 : 1;
+    const shadow = isHovered ? '0 6px 20px rgba(26,26,26,0.3)' : '0 2px 10px rgba(26,26,26,0.2)';
+    
+    return {
+      position: 'relative' as const,
+      width: `${size}px`,
+      height: `${size}px`,
+      backgroundColor: baseColor,
+      borderRadius: cluster.isCluster ? '50%' : '50%',
+      border: `2px solid ${isHovered ? '#f9f6ef' : '#ffffff'}`,
+      cursor: 'pointer',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      fontSize: cluster.isCluster ? 
+        `${Math.min(14, Math.max(10, 8 + cluster.areas.length))}px` : 
+        '14px',
+      fontWeight: '700',
+      color: '#ffffff',
+      fontFamily: 'Sora, sans-serif',
+      boxShadow: shadow,
+      transform: `scale(${scale})`,
+      transformOrigin: 'center',
+      transition: 'transform 0.2s ease, box-shadow 0.2s ease',
+      zIndex: isHovered ? 1000 : 'auto',
+      textShadow: '0 1px 2px rgba(26,26,26,0.3)',
+    };
   };
 
-  // Pulse animation for single markers
+  // Simplified pulse animation
   const getPulseAnimation = (baseColor: string) => ({
     position: 'absolute' as const,
     top: '50%',
     left: '50%',
-    width: '100%',
-    height: '100%',
+    width: '120%',
+    height: '120%',
     borderRadius: '50%',
-    background: `${baseColor}30`,
+    background: `${baseColor}20`,
     transform: 'translate(-50%, -50%)',
     animation: 'markerPulse 2s infinite',
     zIndex: -1,
@@ -317,121 +277,112 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
           {...viewState}
           onMove={evt => setViewState(evt.viewState)}
           style={{ width: '100%', height: '100vh' }}
-          mapStyle={getMapStyle()}
+          mapStyle="mapbox://styles/mapbox/streets-v11"
           mapboxAccessToken={process.env.REACT_APP_MAPBOX_TOKEN}
           renderWorldCopies={true}
           minZoom={1}
           maxZoom={20}
-          projection={{ name: 'mercator' }}
+          onError={(error) => {
+            console.error('Mapbox error:', error);
+          }}
+          onLoad={() => {
+            console.log('Map loaded successfully');
+            console.log('Mapbox token starts with:', process.env.REACT_APP_MAPBOX_TOKEN?.substring(0, 20));
+          }}
         >
           {/* Enhanced clustered research area markers */}
-          {clusteredMarkers
-            .filter(cluster => 
-              isUofUFocused 
-                ? cluster.areas.some(area => area.mapFocus === 'Campus')
-                : true
-            )
-            .map((cluster) => {
-              const isHovered = hoveredMarkerId === cluster.id;
-              
-              return (
-                <Marker
-                  key={cluster.id}
-                  longitude={cluster.longitude}
-                  latitude={cluster.latitude}
-                  anchor="bottom"
-                  onClick={e => {
-                    e.originalEvent.stopPropagation();
-                    handleClusterClick(cluster);
-                  }}
+          {clusteredMarkers.map((cluster) => {
+            const isHovered = hoveredMarkerId === cluster.id;
+            
+            return (
+              <Marker
+                key={cluster.id}
+                longitude={cluster.longitude}
+                latitude={cluster.latitude}
+                anchor="bottom"
+                onClick={e => {
+                  e.originalEvent.stopPropagation();
+                  handleClusterClick(cluster);
+                }}
+              >
+                <div
+                  style={getMarkerStyles(cluster, isHovered)}
+                  onMouseEnter={() => setHoveredMarkerId(cluster.id)}
+                  onMouseLeave={() => setHoveredMarkerId(null)}
                 >
-                  <div
-                    style={getMarkerStyles(cluster, isHovered)}
-                    onMouseEnter={() => setHoveredMarkerId(cluster.id)}
-                    onMouseLeave={() => setHoveredMarkerId(null)}
-                  >
-                    {/* Pulse animation for single markers */}
-                    {!cluster.isCluster && (
-                      <div style={getPulseAnimation(getClusterColor(cluster.areas))} />
-                    )}
-                    
-                    {/* Marker content */}
-                    {cluster.isCluster ? (
-                      <div style={{
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        textAlign: 'center'
-                      }}>
-                        <div style={{ 
-                          fontSize: 'inherit',
-                          fontWeight: 'inherit',
-                          lineHeight: '1'
-                        }}>
-                          {cluster.areas.length}
-                        </div>
-                      </div>
-                    ) : (
-                      <div style={{
-                        fontSize: '16px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        width: '100%',
-                        height: '100%',
-                      }}>
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-                          <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/>
-                        </svg>
-                      </div>
-                    )}
+                  {/* Pulse animation for single markers */}
+                  {!cluster.isCluster && (
+                    <div style={getPulseAnimation(getClusterColor(cluster.areas))} />
+                  )}
+                  
+                  {/* Marker content */}
+                  {cluster.isCluster ? (
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      width: '100%',
+                      height: '100%',
+                    }}>
+                      {cluster.areas.length}
+                    </div>
+                  ) : (
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      width: '100%',
+                      height: '100%',
+                    }}>
+                      •
+                    </div>
+                  )}
 
-                    {/* Hover tooltip */}
-                    {isHovered && (
+                  {/* Hover tooltip */}
+                  {isHovered && (
+                    <div style={{
+                      position: 'absolute',
+                      bottom: '120%',
+                      left: '50%',
+                      transform: 'translateX(-50%)',
+                      backgroundColor: '#1a1a1a',
+                      color: '#f9f6ef',
+                      padding: '8px 12px',
+                      borderRadius: '4px',
+                      fontSize: '12px',
+                      fontWeight: '600',
+                      whiteSpace: 'nowrap',
+                      boxShadow: '0 4px 12px rgba(26,26,26,0.3)',
+                      zIndex: 1001,
+                      fontFamily: 'Sora, sans-serif',
+                      letterSpacing: '0.02em',
+                      textTransform: 'uppercase',
+                      animation: 'tooltipFade 0.2s ease-in-out'
+                    }}>
+                      {cluster.isCluster 
+                        ? `${cluster.areas.length} Research Projects`
+                        : cluster.areas[0].name.length > 30 
+                          ? cluster.areas[0].name.substring(0, 30) + '...'
+                          : cluster.areas[0].name
+                      }
+                      {/* Tooltip arrow */}
                       <div style={{
                         position: 'absolute',
-                        bottom: '120%',
+                        top: '100%',
                         left: '50%',
                         transform: 'translateX(-50%)',
-                        backgroundColor: '#1a1a1a',
-                        color: '#f9f6ef',
-                        padding: '8px 12px',
-                        borderRadius: '4px',
-                        fontSize: '12px',
-                        fontWeight: '600',
-                        whiteSpace: 'nowrap',
-                        boxShadow: '0 4px 12px rgba(26,26,26,0.3)',
-                        zIndex: 1001,
-                        fontFamily: 'Sora, sans-serif',
-                        letterSpacing: '0.02em',
-                        textTransform: 'uppercase',
-                        animation: 'tooltipFade 0.2s ease-in-out'
-                      }}>
-                        {cluster.isCluster 
-                          ? `${cluster.areas.length} Research Projects`
-                          : cluster.areas[0].name.length > 30 
-                            ? cluster.areas[0].name.substring(0, 30) + '...'
-                            : cluster.areas[0].name
-                        }
-                        {/* Tooltip arrow */}
-                        <div style={{
-                          position: 'absolute',
-                          top: '100%',
-                          left: '50%',
-                          transform: 'translateX(-50%)',
-                          width: 0,
-                          height: 0,
-                          borderLeft: '6px solid transparent',
-                          borderRight: '6px solid transparent',
-                          borderTop: '6px solid #1a1a1a'
-                        }} />
-                      </div>
-                    )}
-                  </div>
-                </Marker>
-              );
-            })}
+                        width: 0,
+                        height: 0,
+                        borderLeft: '6px solid transparent',
+                        borderRight: '6px solid transparent',
+                        borderTop: '6px solid #1a1a1a'
+                      }} />
+                    </div>
+                  )}
+                </div>
+              </Marker>
+            );
+          })}
         </Map>
 
         {/* Navigation buttons */}

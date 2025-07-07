@@ -171,25 +171,11 @@ async function geocodeAllAddresses() {
         }
         break;
       case 'campus':
-        // Campus addresses - check if it's coordinates first
-        const campusCoords = parseCoordinates(addressData);
-        if (campusCoords) {
-          // It's coordinates, use them directly
-          geocodedResults[addressData] = {
-            address: addressData,
-            lat: campusCoords.lat,
-            lng: campusCoords.lng,
-            mapCategory,
-            method: 'coordinates',
-            timestamp: new Date().toISOString()
-          };
-        } else {
-          // It's an address, needs geocoding
-          address = addressData;
-          if (!geocodedResults[address]) {
-            needsGeocoding = true;
-            addressesToGeocode.push({ address, mapCategory });
-          }
+        // Campus addresses need geocoding
+        address = addressData;
+        if (!geocodedResults[address]) {
+          needsGeocoding = true;
+          addressesToGeocode.push({ address, mapCategory });
         }
         break;
     }

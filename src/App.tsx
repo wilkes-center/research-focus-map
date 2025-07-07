@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import 'mapbox-gl/dist/mapbox-gl.css';
 import MapComponent from './components/MapComponent';
 import CategoryFilter from './components/CategoryFilter';
 import IntroPage from './components/IntroPage';
@@ -49,6 +50,7 @@ const App: React.FC = () => {
         const data = await loadResearchFocusData();
         console.log('Loaded data:', data);
         console.log('Number of research areas:', data.length);
+        console.log('Sample area structure:', data[0]);
         
         // Calculate remaining time to ensure minimum loading duration
         const elapsedTime = Date.now() - startTime;
@@ -60,8 +62,10 @@ const App: React.FC = () => {
         }
         
         if (data.length === 0) {
+          console.error('No research areas loaded!');
           setError('No research areas were loaded from the CSV file');
         } else {
+          console.log('Setting research areas in state:', data.length);
           setResearchAreas(data);
         }
       } catch (err) {
@@ -91,6 +95,15 @@ const App: React.FC = () => {
   const departments = Array.from(new Set(researchAreas.map(area => area.category))).sort();
   const terms = Array.from(new Set(researchAreas.map(area => area.term))).sort();
   const types = Array.from(new Set(researchAreas.map(area => area.type))).sort();
+
+  // Calculate filtered research areas based on selected filters
+  const filteredResearchAreas = researchAreas.filter(area => {
+    const departmentMatch = selectedFilters.departments.length === 0 || selectedFilters.departments.includes(area.category);
+    const termMatch = selectedFilters.terms.length === 0 || selectedFilters.terms.includes(area.term);
+    const typeMatch = selectedFilters.types.length === 0 || selectedFilters.types.includes(area.type);
+    
+    return departmentMatch && termMatch && typeMatch;
+  });
 
   // Show intro page first
   if (showIntro) {
@@ -134,7 +147,7 @@ const App: React.FC = () => {
           title="Return to Introduction"
           >
             <img 
-              src={`${process.env.PUBLIC_URL}/logo192.png`} 
+              src={`${process.env.PUBLIC_URL}/favicon-32x32.png`} 
               alt="Wilkes Center Logo" 
               style={{
                 width: '24px',
@@ -181,6 +194,8 @@ const App: React.FC = () => {
     );
   }
 
+  console.log('App state - researchAreas length:', researchAreas.length);
+
   return (
     <div className="App">
       <header style={{
@@ -213,7 +228,7 @@ const App: React.FC = () => {
         title="Return to Introduction"
         >
           <img 
-            src={`${process.env.PUBLIC_URL}/logo192.png`} 
+            src={`${process.env.PUBLIC_URL}/favicon-32x32.png`} 
             alt="Wilkes Center Logo" 
             style={{
               width: '24px',
@@ -228,7 +243,7 @@ const App: React.FC = () => {
         {!loading && !error && (
           <>
             <MapComponent 
-              researchAreas={researchAreas}
+              researchAreas={filteredResearchAreas}
               selectedFilters={selectedFilters}
             />
             <CategoryFilter
@@ -237,6 +252,8 @@ const App: React.FC = () => {
               types={types}
               selectedFilters={selectedFilters}
               onFiltersChange={setSelectedFilters}
+              matchingAreasCount={filteredResearchAreas.length}
+              totalAreasCount={researchAreas.length}
             />
           </>
         )}
