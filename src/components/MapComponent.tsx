@@ -23,7 +23,7 @@ interface MarkerCluster {
 }
 
 // Enhanced clustering function that considers zoom level and visual proximity
-const clusterMarkers = (areas: ResearchArea[], zoom: number): MarkerCluster[] => {
+const clusterMarkers = (areas: ResearchArea[], zoom: number, selectedArea?: ResearchArea | null): MarkerCluster[] => {
   // Calculate clustering distance based on zoom level
   // Much more precise distances at high zoom levels for campus
   const getClusterDistance = (zoom: number): number => {
@@ -40,6 +40,7 @@ const clusterMarkers = (areas: ResearchArea[], zoom: number): MarkerCluster[] =>
   const clusterDistance = getClusterDistance(zoom);
   const clusters: MarkerCluster[] = [];
   const processed = new Set<number>();
+  let selectedClusterFound = false;
   
   areas.forEach((area, index) => {
     if (processed.has(index)) return;
@@ -66,8 +67,19 @@ const clusterMarkers = (areas: ResearchArea[], zoom: number): MarkerCluster[] =>
     const avgLng = nearbyAreas.reduce((sum, a) => sum + a.longitude, 0) / nearbyAreas.length;
     const avgLat = nearbyAreas.reduce((sum, a) => sum + a.latitude, 0) / nearbyAreas.length;
     
+    // Check if this cluster contains the selected area and we haven't found it yet
+    const containsSelectedArea = selectedArea && 
+      nearbyAreas.some(a => a.name === selectedArea.name && a.researcherName === selectedArea.researcherName);
+    
+    // Generate cluster ID - use special ID for the cluster containing the selected area
+    let clusterId = `cluster-${clusters.length}`;
+    if (containsSelectedArea && !selectedClusterFound) {
+      clusterId = 'selected-cluster';
+      selectedClusterFound = true;
+    }
+    
     clusters.push({
-      id: `cluster-${clusters.length}`,
+      id: clusterId,
       longitude: avgLng,
       latitude: avgLat,
       areas: nearbyAreas,
@@ -81,6 +93,7 @@ const clusterMarkers = (areas: ResearchArea[], zoom: number): MarkerCluster[] =>
 const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilters }) => {
   const [selectedArea, setSelectedArea] = useState<ResearchArea | null>(null);
   const [selectedCluster, setSelectedCluster] = useState<MarkerCluster | null>(null);
+  const [previousCluster, setPreviousCluster] = useState<MarkerCluster | null>(null);
   const [sidePanelOpen, setSidePanelOpen] = useState(false);
   const [isUofUFocused, setIsUofUFocused] = useState(false);
   const [hoveredMarkerId, setHoveredMarkerId] = useState<string | null>(null);
@@ -101,7 +114,7 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
 
   // Create stable clustered markers (not dependent on zoom level)
   const clusteredMarkers = useMemo(() => {
-    const markers = clusterMarkers(filteredAreas, viewState.zoom);
+    const markers = clusterMarkers(filteredAreas, viewState.zoom, selectedArea);
     
     // Filter for campus view and log info
     if (isUofUFocused) {
@@ -121,7 +134,7 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
     }
     
     return markers;
-  }, [filteredAreas, viewState.zoom, isUofUFocused]);
+  }, [filteredAreas, viewState.zoom, isUofUFocused, selectedArea]);
 
   // Reset UofU focus when zooming out
   React.useEffect(() => {
@@ -170,6 +183,7 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
     setSidePanelOpen(false);
     setSelectedArea(null);
     setSelectedCluster(null);
+    setPreviousCluster(null);
   };
 
   const handleClusterClick = (cluster: MarkerCluster) => {
@@ -196,9 +210,21 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
   };
 
   const handleProjectClick = (area: ResearchArea) => {
+    // Store the current cluster as previous cluster if we're viewing a cluster
+    if (selectedCluster) {
+      setPreviousCluster(selectedCluster);
+    }
     setSelectedArea(area);
     setSelectedCluster(null);
     setSidePanelOpen(true);
+  };
+
+  const handleBackToCluster = () => {
+    if (previousCluster) {
+      setSelectedCluster(previousCluster);
+      setSelectedArea(null);
+      // Don't clear previousCluster yet, in case user wants to go back to individual project
+    }
   };
 
   const getClusterColor = (areas: ResearchArea[]) => {
@@ -217,21 +243,25 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
   };
 
   const getMarkerStyles = (cluster: MarkerCluster, isHovered: boolean = false) => {
-    const baseColor = getClusterColor(cluster.areas);
+    const isSelected = cluster.id === 'selected-cluster';
+    const baseColor = isSelected ? '#ff6b35' : getClusterColor(cluster.areas); // Bright orange for selected
     const size = cluster.isCluster ? 
       Math.min(60, Math.max(30, 20 + cluster.areas.length * 3)) : 
       28;
     
-    const scale = isHovered ? 1.1 : 1;
-    const shadow = isHovered ? '0 6px 20px rgba(26,26,26,0.3)' : '0 2px 10px rgba(26,26,26,0.2)';
+    const scale = isHovered ? 1.1 : (isSelected ? 1.15 : 1); // Selected markers are slightly larger
+    const shadow = isSelected ? 
+      '0 8px 25px rgba(255, 107, 53, 0.4), 0 0 0 3px rgba(255, 107, 53, 0.2)' : 
+      (isHovered ? '0 6px 20px rgba(26,26,26,0.3)' : '0 2px 10px rgba(26,26,26,0.2)');
     
+    // Use consistent circular styling for all markers, including selected ones
     return {
       position: 'relative' as const,
       width: `${size}px`,
       height: `${size}px`,
       backgroundColor: baseColor,
-      borderRadius: cluster.isCluster ? '50%' : '50%',
-      border: `2px solid ${isHovered ? '#f9f6ef' : '#ffffff'}`,
+      borderRadius: '50%',
+      border: `2px solid ${isSelected ? '#ffffff' : (isHovered ? '#f9f6ef' : '#ffffff')}`,
       cursor: 'pointer',
       display: 'flex',
       alignItems: 'center',
@@ -245,21 +275,21 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
       boxShadow: shadow,
       transform: `scale(${scale})`,
       transformOrigin: 'center',
-      transition: 'transform 0.2s ease, box-shadow 0.2s ease',
-      zIndex: isHovered ? 1000 : 'auto',
+      transition: 'transform 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease',
+      zIndex: isSelected ? 1002 : (isHovered ? 1000 : 'auto'),
       textShadow: '0 1px 2px rgba(26,26,26,0.3)',
     };
   };
 
   // Simplified pulse animation
-  const getPulseAnimation = (baseColor: string) => ({
+  const getPulseAnimation = (baseColor: string, isSelected: boolean = false) => ({
     position: 'absolute' as const,
     top: '50%',
     left: '50%',
     width: '120%',
     height: '120%',
     borderRadius: '50%',
-    background: `${baseColor}20`,
+    background: isSelected ? '#ff6b3520' : `${baseColor}20`,
     transform: 'translate(-50%, -50%)',
     animation: 'markerPulse 2s infinite',
     zIndex: -1,
@@ -312,7 +342,7 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
                 >
                   {/* Pulse animation for single markers */}
                   {!cluster.isCluster && (
-                    <div style={getPulseAnimation(getClusterColor(cluster.areas))} />
+                    <div style={getPulseAnimation(getClusterColor(cluster.areas), cluster.id === 'selected-cluster')} />
                   )}
                   
                   {/* Marker content */}
@@ -338,7 +368,7 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
                     </div>
                   )}
 
-                  {/* Hover tooltip */}
+                  {/* Hover tooltip - positioned relative to marker */}
                   {isHovered && (
                     <div style={{
                       position: 'absolute',
@@ -347,23 +377,25 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
                       transform: 'translateX(-50%)',
                       backgroundColor: '#1a1a1a',
                       color: '#f9f6ef',
-                      padding: '8px 12px',
+                      padding: '10px 16px',
                       borderRadius: '4px',
-                      fontSize: '12px',
-                      fontWeight: '600',
-                      whiteSpace: 'nowrap',
+                      fontSize: '13px',
+                      fontWeight: '500',
                       boxShadow: '0 4px 12px rgba(26,26,26,0.3)',
-                      zIndex: 1001,
+                      zIndex: 999999,
                       fontFamily: 'Sora, sans-serif',
-                      letterSpacing: '0.02em',
-                      textTransform: 'uppercase',
-                      animation: 'tooltipFade 0.2s ease-in-out'
+                      letterSpacing: '0.01em',
+                      animation: 'tooltipFade 0.2s ease-in-out',
+                      maxWidth: '500px',
+                      minWidth: '200px',
+                      whiteSpace: 'normal',
+                      textAlign: 'center',
+                      lineHeight: '1.4',
+                      pointerEvents: 'none'
                     }}>
                       {cluster.isCluster 
                         ? `${cluster.areas.length} Research Projects`
-                        : cluster.areas[0].name.length > 30 
-                          ? cluster.areas[0].name.substring(0, 30) + '...'
-                          : cluster.areas[0].name
+                        : cluster.areas[0].name
                       }
                       {/* Tooltip arrow */}
                       <div style={{
@@ -491,6 +523,93 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
             🏛️ U Campus View
           </button>
         </div>
+
+        {/* Zoom controls */}
+        <div style={{
+          position: 'absolute',
+          bottom: '80px',
+          left: '20px',
+          zIndex: 1000,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '1px',
+          backgroundColor: '#f9f6ef',
+          border: '1px solid #1a1a1a20',
+          borderRadius: '3px',
+          overflow: 'hidden',
+          boxShadow: '0 2px 8px rgba(26,26,26,0.15)'
+        }}>
+          {/* Zoom In button */}
+          <button
+            onClick={() => setViewState({
+              ...viewState,
+              zoom: Math.min(viewState.zoom + 1, 20)
+            })}
+            style={{
+              backgroundColor: '#f9f6ef',
+              color: '#1a1a1a',
+              border: 'none',
+              padding: '8px',
+              fontSize: '14px',
+              fontWeight: '600',
+              fontFamily: 'Sora, sans-serif',
+              cursor: 'pointer',
+              transition: 'all 0.2s ease',
+              width: '32px',
+              height: '32px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderBottom: '1px solid #1a1a1a10'
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = '#1a1a1a';
+              e.currentTarget.style.color = '#f9f6ef';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = '#f9f6ef';
+              e.currentTarget.style.color = '#1a1a1a';
+            }}
+            title="Zoom In"
+          >
+            +
+          </button>
+
+          {/* Zoom Out button */}
+          <button
+            onClick={() => setViewState({
+              ...viewState,
+              zoom: Math.max(viewState.zoom - 1, 1)
+            })}
+            style={{
+              backgroundColor: '#f9f6ef',
+              color: '#1a1a1a',
+              border: 'none',
+              padding: '8px',
+              fontSize: '14px',
+              fontWeight: '600',
+              fontFamily: 'Sora, sans-serif',
+              cursor: 'pointer',
+              transition: 'all 0.2s ease',
+              width: '32px',
+              height: '32px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = '#1a1a1a';
+              e.currentTarget.style.color = '#f9f6ef';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = '#f9f6ef';
+              e.currentTarget.style.color = '#1a1a1a';
+            }}
+            title="Zoom Out"
+          >
+            −
+          </button>
+        </div>
       </div>
 
       {/* Side Panel */}
@@ -516,16 +635,53 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
             backgroundColor: '#f9f6ef',
             flexShrink: 0
           }}>
-            <h2 style={{
-              margin: '0',
-              fontSize: '18px',
-              fontWeight: '600',
-              color: '#1a1a1a',
-              textTransform: 'uppercase',
-              letterSpacing: '0.05em'
-            }}>
-              {selectedArea ? 'Research Project' : selectedCluster ? `${selectedCluster.areas.length} Research Projects` : 'Project Details'}
-            </h2>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              {/* Back button - only show when viewing a single project that came from a cluster */}
+              {selectedArea && previousCluster && (
+                <button
+                  onClick={handleBackToCluster}
+                  style={{
+                    background: 'none',
+                    border: '1px solid #1a1a1a20',
+                    cursor: 'pointer',
+                    color: '#1a1a1a',
+                    padding: '8px 12px',
+                    borderRadius: '2px',
+                    transition: 'all 0.2s ease',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    fontFamily: 'Sora, sans-serif',
+                    fontWeight: '600',
+                    fontSize: '12px',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.05em'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.backgroundColor = '#1a1a1a';
+                    e.currentTarget.style.color = '#f9f6ef';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = 'transparent';
+                    e.currentTarget.style.color = '#1a1a1a';
+                  }}
+                >
+                  ← Back
+                </button>
+              )}
+              
+              <h2 style={{
+                margin: '0',
+                fontSize: '18px',
+                fontWeight: '600',
+                color: '#1a1a1a',
+                textTransform: 'uppercase',
+                letterSpacing: '0.05em'
+              }}>
+                {selectedArea ? 'Research Project' : selectedCluster ? `${selectedCluster.areas.length} Research Projects` : 'Project Details'}
+              </h2>
+            </div>
+            
             <button
               onClick={closeSidePanel}
               style={{
@@ -576,7 +732,7 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
                     lineHeight: '1.3',
                     marginBottom: '8px'
                   }}>
-                    Researcher: {selectedArea.researcherName}
+                    Researcher: {selectedArea.researcherName.toLowerCase().replace(/\b\w/g, l => l.toUpperCase())}
                   </div>
                   {selectedArea.collaborator && (
                     <div style={{
@@ -585,7 +741,7 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
                       color: '#1a1a1a',
                       lineHeight: '1.3'
                     }}>
-                      Collaborator: {selectedArea.collaborator}
+                      Collaborator: {selectedArea.collaborator.toLowerCase().replace(/\b\w/g, l => l.toUpperCase())}
                     </div>
                   )}
                 </div>
@@ -634,37 +790,10 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
                   </span>
                 </div>
 
-                <div style={{
-                  backgroundColor: '#ffffff',
-                  padding: '20px',
-                  borderRadius: '0',
-                  border: '1px solid #1a1a1a20'
-                }}>
-                  <h4 style={{
-                    margin: '0 0 12px 0',
-                    fontSize: '14px',
-                    fontWeight: '600',
-                    color: '#1a1a1a',
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.05em'
-                  }}>
-                    Project Description
-                  </h4>
-                  <p style={{
-                    margin: '0',
-                    fontSize: '14px',
-                    color: '#1a1a1a',
-                    lineHeight: '1.6',
-                    fontWeight: '400'
-                  }}>
-                    {selectedArea.description}
-                  </p>
-                </div>
-
                 {/* Geographic Focus */}
                 {selectedArea.geographicFocus && (
                   <div style={{
-                    marginTop: '20px',
+                    marginBottom: '20px',
                     padding: '20px',
                     backgroundColor: '#ffffff',
                     borderRadius: '0',
@@ -691,6 +820,33 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
                     </p>
                   </div>
                 )}
+
+                <div style={{
+                  backgroundColor: '#ffffff',
+                  padding: '20px',
+                  borderRadius: '0',
+                  border: '1px solid #1a1a1a20'
+                }}>
+                  <h4 style={{
+                    margin: '0 0 12px 0',
+                    fontSize: '14px',
+                    fontWeight: '600',
+                    color: '#1a1a1a',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.05em'
+                  }}>
+                    Project Description
+                  </h4>
+                  <p style={{
+                    margin: '0',
+                    fontSize: '14px',
+                    color: '#1a1a1a',
+                    lineHeight: '1.6',
+                    fontWeight: '400'
+                  }}>
+                    {selectedArea.description}
+                  </p>
+                </div>
 
                 {/* Links section - if available */}
                 {selectedArea.links && (
@@ -719,32 +875,63 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
                       {selectedArea.links.split(',').map((link, index) => {
                         const trimmedLink = link.trim();
                         if (trimmedLink.startsWith('http://') || trimmedLink.startsWith('https://')) {
+                          // Extract domain name for cleaner display
+                          const urlObj = new URL(trimmedLink);
+                          const displayText = urlObj.hostname.replace('www.', '');
+                          
                           return (
-                            <div key={index} style={{ marginBottom: '4px' }}>
+                            <div key={index} style={{ 
+                              marginBottom: '8px',
+                              wordBreak: 'break-all',
+                              overflowWrap: 'break-word'
+                            }}>
                               <a
                                 href={trimmedLink}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 style={{
                                   color: '#dd3b00',
-                                  textDecoration: 'underline',
+                                  textDecoration: 'none',
                                   fontSize: '14px',
-                                  fontWeight: '500'
+                                  fontWeight: '500',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '6px',
+                                  padding: '8px 12px',
+                                  backgroundColor: '#f9f6ef',
+                                  border: '1px solid #dd3b00',
+                                  borderRadius: '4px',
+                                  transition: 'all 0.2s ease',
+                                  wordBreak: 'break-word',
+                                  lineHeight: '1.4'
                                 }}
                                 onMouseEnter={(e) => {
-                                  e.currentTarget.style.color = '#751d0c';
+                                  e.currentTarget.style.backgroundColor = '#dd3b00';
+                                  e.currentTarget.style.color = '#f9f6ef';
                                 }}
                                 onMouseLeave={(e) => {
+                                  e.currentTarget.style.backgroundColor = '#f9f6ef';
                                   e.currentTarget.style.color = '#dd3b00';
                                 }}
                               >
-                                {trimmedLink}
+                                <span>🔗</span>
+                                <span style={{ 
+                                  wordBreak: 'break-word',
+                                  overflowWrap: 'anywhere'
+                                }}>
+                                  {displayText}
+                                </span>
                               </a>
                             </div>
                           );
                         } else {
                           return (
-                            <div key={index} style={{ marginBottom: '4px' }}>
+                            <div key={index} style={{ 
+                              marginBottom: '8px',
+                              wordBreak: 'break-word',
+                              overflowWrap: 'break-word',
+                              lineHeight: '1.4'
+                            }}>
                               {trimmedLink}
                             </div>
                           );
