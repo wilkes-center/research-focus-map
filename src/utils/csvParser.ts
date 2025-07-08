@@ -177,7 +177,7 @@ export const parseResearchFocusCSV = async (csvData: ResearchFocusData[]): Promi
           researcherName: row.Name || 'Unknown Researcher',
           collaborator: row.Collaborator || '',
           links: row.Links || '',
-          geographicFocus: row['Geographic Focus (Title)'] || ''
+          geographicFocus: row.Map === 'Campus' ? row['Geographic Focus (Data)'] : (row['Geographic Focus (Title)'] || '')
         };
         
         return researchArea;
