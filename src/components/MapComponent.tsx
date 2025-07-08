@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import Map, { Marker } from 'react-map-gl';
 import { ResearchArea } from '../types/ResearchArea';
 import { getDepartmentColor } from '../utils/mapUtils';
@@ -103,6 +103,13 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
     zoom: 2
   });
 
+  // Play feature state
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentMarkerIndex, setCurrentMarkerIndex] = useState(0);
+  const [playProgress, setPlayProgress] = useState(0);
+  const playTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const progressTimerRef = useRef<NodeJS.Timeout | null>(null);
+
   // Filter areas based on selected filters
   const filteredAreas = researchAreas.filter(area => {
     const departmentMatch = selectedFilters.departments.length === 0 || selectedFilters.departments.includes(area.category);
@@ -180,6 +187,23 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
   };
 
   const closeSidePanel = () => {
+    // Stop play mode when sidebar is manually closed
+    if (isPlaying) {
+      // Only clear the playing state and timers, but don't close sidebar again
+      setIsPlaying(false);
+      setCurrentMarkerIndex(0);
+      setPlayProgress(0);
+      
+      if (playTimerRef.current) {
+        clearTimeout(playTimerRef.current);
+        playTimerRef.current = null;
+      }
+      if (progressTimerRef.current) {
+        clearInterval(progressTimerRef.current);
+        progressTimerRef.current = null;
+      }
+    }
+    
     setSidePanelOpen(false);
     setSelectedArea(null);
     setSelectedCluster(null);
@@ -187,6 +211,12 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
   };
 
   const handleClusterClick = (cluster: MarkerCluster) => {
+    // Stop play mode when user manually clicks a marker
+    if (isPlaying) {
+      console.log('⏹️ Tour stopped due to user interaction');
+      stopPlay();
+    }
+    
     if (cluster.isCluster) {
       // For proximity clusters, decide whether to zoom in or show cluster panel
       if (viewState.zoom < 12) {
@@ -210,6 +240,12 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
   };
 
   const handleProjectClick = (area: ResearchArea) => {
+    // Stop play mode when user manually clicks a project
+    if (isPlaying) {
+      console.log('⏹️ Tour stopped due to project selection');
+      stopPlay();
+    }
+    
     // Store the current cluster as previous cluster if we're viewing a cluster
     if (selectedCluster) {
       setPreviousCluster(selectedCluster);
@@ -226,6 +262,147 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
       // Don't clear previousCluster yet, in case user wants to go back to individual project
     }
   };
+
+  // Play functionality
+  const startPlay = () => {
+    if (clusteredMarkers.length === 0) return;
+    
+    // Clear any existing state first
+    if (playTimerRef.current) {
+      clearTimeout(playTimerRef.current);
+      playTimerRef.current = null;
+    }
+    if (progressTimerRef.current) {
+      clearInterval(progressTimerRef.current);
+      progressTimerRef.current = null;
+    }
+    
+    // Reset all tour state
+    setCurrentMarkerIndex(0);
+    setPlayProgress(0);
+    setSelectedArea(null);
+    setSelectedCluster(null);
+    setPreviousCluster(null);
+    
+    // Start the tour
+    setIsPlaying(true);
+    console.log('🎬 Tour started with', clusteredMarkers.length, 'markers');
+  };
+
+  const stopPlay = () => {
+    console.log('⏹️ Tour stopped');
+    setIsPlaying(false);
+    setCurrentMarkerIndex(0);
+    setPlayProgress(0);
+    
+    // Clear all timers
+    if (playTimerRef.current) {
+      clearTimeout(playTimerRef.current);
+      playTimerRef.current = null;
+    }
+    if (progressTimerRef.current) {
+      clearInterval(progressTimerRef.current);
+      progressTimerRef.current = null;
+    }
+    
+    // Clear tour-related UI state
+    setSidePanelOpen(false);
+    setSelectedArea(null);
+    setSelectedCluster(null);
+    setPreviousCluster(null);
+  };
+
+  const navigateToMarker = (index: number) => {
+    if (index >= clusteredMarkers.length) {
+      // End of markers, stop playing
+      stopPlay();
+      return;
+    }
+
+    const marker = clusteredMarkers[index];
+    
+    // Determine appropriate zoom level based on location
+    const getZoomLevel = (marker: MarkerCluster) => {
+      // Check if marker is in Utah (approximate bounds)
+      const isInUtah = marker.latitude >= 37.0 && marker.latitude <= 42.0 && 
+                       marker.longitude >= -114.0 && marker.longitude <= -109.0;
+      
+      if (isInUtah) {
+        // For Utah markers, use moderate zoom to show regional context
+        return Math.max(viewState.zoom, 10);
+      } else {
+        // For international/out-of-state markers, use much higher zoom for better context
+        return Math.max(viewState.zoom, 6);
+      }
+    };
+    
+    // Navigate to marker location with appropriate zoom
+    setViewState({
+      longitude: marker.longitude,
+      latitude: marker.latitude,
+      zoom: getZoomLevel(marker)
+    });
+
+    // In tour mode, always show individual research areas, even if they're part of a cluster
+    if (marker.isCluster) {
+      // For clusters in tour mode, show the first research area individually
+      setSelectedArea(marker.areas[0]);
+      setSelectedCluster(null);
+    } else {
+      // For single markers, show the area as usual
+      setSelectedArea(marker.areas[0]);
+      setSelectedCluster(null);
+    }
+    setSidePanelOpen(true);
+
+    // Clear any existing timers before setting new ones
+    if (progressTimerRef.current) {
+      clearInterval(progressTimerRef.current);
+      progressTimerRef.current = null;
+    }
+    if (playTimerRef.current) {
+      clearTimeout(playTimerRef.current);
+      playTimerRef.current = null;
+    }
+
+    // Start progress timer (updates every 100ms for smooth progress bar)
+    let progress = 0;
+    progressTimerRef.current = setInterval(() => {
+      progress += 100 / 60000; // 60 seconds = 60000ms
+      setPlayProgress(Math.min(progress, 100));
+    }, 100);
+
+    // Set timer for next marker (1 minute = 60000ms)
+    playTimerRef.current = setTimeout(() => {
+      setCurrentMarkerIndex(index + 1);
+      setPlayProgress(0);
+      if (progressTimerRef.current) {
+        clearInterval(progressTimerRef.current);
+        progressTimerRef.current = null;
+      }
+      navigateToMarker(index + 1);
+    }, 60000);
+  };
+
+  // Effect to handle play state changes
+  useEffect(() => {
+    if (isPlaying && currentMarkerIndex < clusteredMarkers.length) {
+      navigateToMarker(currentMarkerIndex);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPlaying, currentMarkerIndex]);
+
+  // Cleanup timers on unmount
+  useEffect(() => {
+    return () => {
+      if (playTimerRef.current) {
+        clearTimeout(playTimerRef.current);
+      }
+      if (progressTimerRef.current) {
+        clearInterval(progressTimerRef.current);
+      }
+    };
+  }, []);
 
   const getClusterColor = (areas: ResearchArea[]) => {
     if (areas.length === 1) {
@@ -244,24 +421,26 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
 
   const getMarkerStyles = (cluster: MarkerCluster, isHovered: boolean = false) => {
     const isSelected = cluster.id === 'selected-cluster';
-    const baseColor = isSelected ? '#ff6b35' : getClusterColor(cluster.areas); // Bright orange for selected
+    const isCurrentlyToured = isPlaying && clusteredMarkers[currentMarkerIndex]?.id === cluster.id;
+    const isSpecial = isSelected || isCurrentlyToured;
+    const baseColor = isSpecial ? '#ff6b35' : getClusterColor(cluster.areas); // Bright orange for selected or currently toured
     const size = cluster.isCluster ? 
       Math.min(60, Math.max(30, 20 + cluster.areas.length * 3)) : 
       28;
     
-    const scale = isHovered ? 1.1 : (isSelected ? 1.15 : 1); // Selected markers are slightly larger
-    const shadow = isSelected ? 
+    const scale = isHovered ? 1.1 : (isSpecial ? 1.15 : 1); // Selected/toured markers are slightly larger
+    const shadow = isSpecial ? 
       '0 8px 25px rgba(255, 107, 53, 0.4), 0 0 0 3px rgba(255, 107, 53, 0.2)' : 
       (isHovered ? '0 6px 20px rgba(26,26,26,0.3)' : '0 2px 10px rgba(26,26,26,0.2)');
     
-    // Use consistent circular styling for all markers, including selected ones
+    // Regular circular styling for all markers (we'll handle the pin shape in the JSX)
     return {
       position: 'relative' as const,
       width: `${size}px`,
       height: `${size}px`,
       backgroundColor: baseColor,
       borderRadius: '50%',
-      border: `2px solid ${isSelected ? '#ffffff' : (isHovered ? '#f9f6ef' : '#ffffff')}`,
+      border: `2px solid ${isSpecial ? '#ffffff' : (isHovered ? '#f9f6ef' : '#ffffff')}`,
       cursor: 'pointer',
       display: 'flex',
       alignItems: 'center',
@@ -276,20 +455,53 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
       transform: `scale(${scale})`,
       transformOrigin: 'center',
       transition: 'transform 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease',
-      zIndex: isSelected ? 1002 : (isHovered ? 1000 : 'auto'),
+      zIndex: isSpecial ? 1002 : (isHovered ? 1000 : 'auto'),
       textShadow: '0 1px 2px rgba(26,26,26,0.3)',
     };
   };
 
+  // Component for map pin shape
+  const MapPinIcon = ({ color, size }: { color: string; size: number }) => (
+    <svg
+      width={size + 8}
+      height={size + 12}
+      viewBox="0 0 24 32"
+      style={{
+        filter: 'drop-shadow(0 4px 8px rgba(0,0,0,0.3))',
+        transform: 'translateY(-4px)' // Offset to align pin point with marker position
+      }}
+    >
+      <path
+        d="M12 0C5.373 0 0 5.373 0 12c0 12 12 20 12 20s12-8 12-20C24 5.373 18.627 0 12 0z"
+        fill={color}
+        stroke="#ffffff"
+        strokeWidth="1.5"
+      />
+      <circle
+        cx="12"
+        cy="12"
+        r="6"
+        fill="#ffffff"
+        opacity="0.9"
+      />
+      <circle
+        cx="12"
+        cy="12"
+        r="3"
+        fill={color}
+      />
+    </svg>
+  );
+
   // Simplified pulse animation
-  const getPulseAnimation = (baseColor: string, isSelected: boolean = false) => ({
+  const getPulseAnimation = (baseColor: string, isSelected: boolean = false, isCurrentlyToured: boolean = false) => ({
     position: 'absolute' as const,
     top: '50%',
     left: '50%',
     width: '120%',
     height: '120%',
     borderRadius: '50%',
-    background: isSelected ? '#ff6b3520' : `${baseColor}20`,
+    background: isSelected || isCurrentlyToured ? '#ff6b3520' : `${baseColor}20`,
     transform: 'translate(-50%, -50%)',
     animation: 'markerPulse 2s infinite',
     zIndex: -1,
@@ -301,7 +513,7 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
       <div style={{ 
         flex: sidePanelOpen ? '1' : '1', 
         transition: 'all 0.3s ease',
-        width: sidePanelOpen ? 'calc(100% - 400px)' : '100%'
+        width: sidePanelOpen ? (isPlaying ? 'calc(100% - 600px)' : 'calc(100% - 400px)') : '100%'
       }}>
         <Map
           {...viewState}
@@ -323,6 +535,11 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
           {/* Enhanced clustered research area markers */}
           {clusteredMarkers.map((cluster) => {
             const isHovered = hoveredMarkerId === cluster.id;
+            const isCurrentlyToured = isPlaying && clusteredMarkers[currentMarkerIndex]?.id === cluster.id;
+            const isSpecial = cluster.id === 'selected-cluster' || isCurrentlyToured;
+            
+            // In tour mode, treat clusters as individual markers for visual purposes
+            const shouldShowAsPin = isSpecial && (!cluster.isCluster || isCurrentlyToured);
             
             return (
               <Marker
@@ -335,83 +552,146 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
                   handleClusterClick(cluster);
                 }}
               >
-                <div
-                  style={getMarkerStyles(cluster, isHovered)}
-                  onMouseEnter={() => setHoveredMarkerId(cluster.id)}
-                  onMouseLeave={() => setHoveredMarkerId(null)}
-                >
-                  {/* Pulse animation for single markers */}
-                  {!cluster.isCluster && (
-                    <div style={getPulseAnimation(getClusterColor(cluster.areas), cluster.id === 'selected-cluster')} />
-                  )}
-                  
-                  {/* Marker content */}
-                  {cluster.isCluster ? (
-                    <div style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      width: '100%',
-                      height: '100%',
-                    }}>
-                      {cluster.areas.length}
-                    </div>
-                  ) : (
-                    <div style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      width: '100%',
-                      height: '100%',
-                    }}>
-                      •
-                    </div>
-                  )}
-
-                  {/* Hover tooltip - positioned relative to marker */}
-                  {isHovered && (
-                    <div style={{
-                      position: 'absolute',
-                      bottom: '120%',
-                      left: '50%',
-                      transform: 'translateX(-50%)',
-                      backgroundColor: '#1a1a1a',
-                      color: '#f9f6ef',
-                      padding: '10px 16px',
-                      borderRadius: '4px',
-                      fontSize: '13px',
-                      fontWeight: '500',
-                      boxShadow: '0 4px 12px rgba(26,26,26,0.3)',
-                      zIndex: 999999,
-                      fontFamily: 'Sora, sans-serif',
-                      letterSpacing: '0.01em',
-                      animation: 'tooltipFade 0.2s ease-in-out',
-                      maxWidth: '500px',
-                      minWidth: '200px',
-                      whiteSpace: 'normal',
-                      textAlign: 'center',
-                      lineHeight: '1.4',
-                      pointerEvents: 'none'
-                    }}>
-                      {cluster.isCluster 
-                        ? `${cluster.areas.length} Research Projects`
-                        : cluster.areas[0].name
-                      }
-                      {/* Tooltip arrow */}
+                {/* Render map pin for selected/toured markers (including clusters during tour), circle for others */}
+                {shouldShowAsPin ? (
+                  <div
+                    style={{
+                      position: 'relative',
+                      cursor: 'pointer',
+                      transform: `scale(${isHovered ? 1.1 : 1.15})`,
+                      transformOrigin: 'center bottom',
+                      transition: 'transform 0.2s ease',
+                      zIndex: 1002
+                    }}
+                    onMouseEnter={() => setHoveredMarkerId(cluster.id)}
+                    onMouseLeave={() => setHoveredMarkerId(null)}
+                  >
+                    <MapPinIcon 
+                      color="#ff6b35"
+                      size={28} 
+                    />
+                    
+                    {/* Hover tooltip for map pin */}
+                    {isHovered && (
                       <div style={{
                         position: 'absolute',
-                        top: '100%',
+                        bottom: '120%',
                         left: '50%',
                         transform: 'translateX(-50%)',
-                        width: 0,
-                        height: 0,
-                        borderLeft: '6px solid transparent',
-                        borderRight: '6px solid transparent',
-                        borderTop: '6px solid #1a1a1a'
-                      }} />
-                    </div>
-                  )}
-                </div>
+                        backgroundColor: '#1a1a1a',
+                        color: '#f9f6ef',
+                        padding: '10px 16px',
+                        borderRadius: '4px',
+                        fontSize: '13px',
+                        fontWeight: '500',
+                        boxShadow: '0 4px 12px rgba(26,26,26,0.3)',
+                        zIndex: 999999,
+                        fontFamily: 'Sora, sans-serif',
+                        letterSpacing: '0.01em',
+                        animation: 'tooltipFade 0.2s ease-in-out',
+                        maxWidth: '500px',
+                        minWidth: '200px',
+                        whiteSpace: 'normal',
+                        textAlign: 'center',
+                        lineHeight: '1.4',
+                        pointerEvents: 'none'
+                      }}>
+                        {/* Show first area name for clusters during tour, or the single area name */}
+                        {cluster.areas[0].name}
+                        {/* Tooltip arrow */}
+                        <div style={{
+                          position: 'absolute',
+                          top: '100%',
+                          left: '50%',
+                          transform: 'translateX(-50%)',
+                          width: 0,
+                          height: 0,
+                          borderLeft: '6px solid transparent',
+                          borderRight: '6px solid transparent',
+                          borderTop: '6px solid #1a1a1a'
+                        }} />
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div
+                    style={getMarkerStyles(cluster, isHovered)}
+                    onMouseEnter={() => setHoveredMarkerId(cluster.id)}
+                    onMouseLeave={() => setHoveredMarkerId(null)}
+                  >
+                    {/* Pulse animation for single markers */}
+                    {!cluster.isCluster && (
+                      <div style={getPulseAnimation(getClusterColor(cluster.areas), cluster.id === 'selected-cluster', isCurrentlyToured)} />
+                    )}
+                    
+                    {/* Marker content */}
+                    {cluster.isCluster ? (
+                      <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        width: '100%',
+                        height: '100%',
+                      }}>
+                        {cluster.areas.length}
+                      </div>
+                    ) : (
+                      <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        width: '100%',
+                        height: '100%',
+                      }}>
+                        •
+                      </div>
+                    )}
+                    
+                    {/* Hover tooltip for circular markers */}
+                    {isHovered && (
+                      <div style={{
+                        position: 'absolute',
+                        bottom: '120%',
+                        left: '50%',
+                        transform: 'translateX(-50%)',
+                        backgroundColor: '#1a1a1a',
+                        color: '#f9f6ef',
+                        padding: '10px 16px',
+                        borderRadius: '4px',
+                        fontSize: '13px',
+                        fontWeight: '500',
+                        boxShadow: '0 4px 12px rgba(26,26,26,0.3)',
+                        zIndex: 999999,
+                        fontFamily: 'Sora, sans-serif',
+                        letterSpacing: '0.01em',
+                        animation: 'tooltipFade 0.2s ease-in-out',
+                        maxWidth: '500px',
+                        minWidth: '200px',
+                        whiteSpace: 'normal',
+                        textAlign: 'center',
+                        lineHeight: '1.4',
+                        pointerEvents: 'none'
+                      }}>
+                        {cluster.isCluster 
+                          ? `${cluster.areas.length} Research Projects`
+                          : cluster.areas[0].name
+                        }
+                        {/* Tooltip arrow */}
+                        <div style={{
+                          position: 'absolute',
+                          top: '100%',
+                          left: '50%',
+                          transform: 'translateX(-50%)',
+                          width: 0,
+                          height: 0,
+                          borderLeft: '6px solid transparent',
+                          borderRight: '6px solid transparent',
+                          borderTop: '6px solid #1a1a1a'
+                        }} />
+                      </div>
+                    )}
+                  </div>
+                )}
               </Marker>
             );
           })}
@@ -427,6 +707,114 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
           flexDirection: 'column',
           gap: '8px'
         }}>
+          {/* Play/Stop buttons */}
+          {!isPlaying ? (
+            <button
+              onClick={startPlay}
+              disabled={clusteredMarkers.length === 0}
+              style={{
+                backgroundColor: '#1a1a1a',
+                color: '#f9f6ef',
+                border: 'none',
+                padding: '12px 18px',
+                borderRadius: '2px',
+                fontSize: '11px',
+                fontWeight: '600',
+                fontFamily: 'Sora, sans-serif',
+                cursor: clusteredMarkers.length === 0 ? 'not-allowed' : 'pointer',
+                boxShadow: '0 2px 8px rgba(26,26,26,0.25)',
+                transition: 'all 0.2s ease',
+                textTransform: 'uppercase',
+                letterSpacing: '0.05em',
+                minWidth: '140px',
+                textAlign: 'center',
+                opacity: clusteredMarkers.length === 0 ? 0.5 : 1,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '8px',
+                position: 'relative',
+                overflow: 'hidden'
+              }}
+              onMouseEnter={(e) => {
+                if (clusteredMarkers.length > 0) {
+                  e.currentTarget.style.backgroundColor = '#2d7d32';
+                  e.currentTarget.style.transform = 'translateY(-1px)';
+                }
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = '#1a1a1a';
+                e.currentTarget.style.transform = 'translateY(0)';
+              }}
+            >
+              <span>▶️</span>
+              <span>Start Tour</span>
+            </button>
+          ) : (
+            <button
+              onClick={stopPlay}
+              style={{
+                backgroundColor: '#1a1a1a',
+                color: '#f9f6ef',
+                border: 'none',
+                padding: '12px 18px',
+                borderRadius: '2px',
+                fontSize: '11px',
+                fontWeight: '600',
+                fontFamily: 'Sora, sans-serif',
+                cursor: 'pointer',
+                boxShadow: '0 2px 8px rgba(26,26,26,0.25)',
+                transition: 'all 0.2s ease',
+                textTransform: 'uppercase',
+                letterSpacing: '0.05em',
+                minWidth: '140px',
+                textAlign: 'center',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '8px',
+                position: 'relative',
+                overflow: 'hidden'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = '#333333';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = '#1a1a1a';
+              }}
+            >
+              {/* Progress bar for play mode */}
+              <div style={{
+                position: 'absolute',
+                bottom: 0,
+                left: 0,
+                height: '3px',
+                backgroundColor: '#f9f6ef',
+                width: `${playProgress}%`,
+                transition: 'width 0.1s ease'
+              }} />
+              <span>Stop Tour</span>
+            </button>
+          )}
+
+          {/* Current marker indicator during play */}
+          {isPlaying && (
+            <div style={{
+              backgroundColor: 'rgba(26,26,26,0.9)',
+              color: '#f9f6ef',
+              padding: '8px 12px',
+              borderRadius: '2px',
+              fontSize: '10px',
+              fontWeight: '600',
+              fontFamily: 'Sora, sans-serif',
+              textAlign: 'center',
+              textTransform: 'uppercase',
+              letterSpacing: '0.05em'
+            }}>
+              {currentMarkerIndex + 1} / {clusteredMarkers.length}
+            </div>
+          )}
+
           {/* World View button */}
           <button
             onClick={handleWorldView}
@@ -615,7 +1003,7 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
       {/* Side Panel */}
       {sidePanelOpen && (
         <div style={{
-          width: '400px',
+          width: isPlaying ? '600px' : '400px',
           height: '100vh',
           backgroundColor: '#f9f6ef',
           borderLeft: '1px solid #1a1a1a20',
@@ -623,7 +1011,8 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
           display: 'flex',
           flexDirection: 'column',
           fontFamily: 'Sora, -apple-system, BlinkMacSystemFont, sans-serif',
-          zIndex: 1001
+          zIndex: 1001,
+          transition: 'width 0.3s ease'
         }}>
           {/* Side Panel Header */}
           <div style={{
@@ -680,28 +1069,67 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
               }}>
                 {selectedArea ? 'Research Project' : selectedCluster ? `${selectedCluster.areas.length} Research Projects` : 'Project Details'}
               </h2>
+              
+              {/* Tour indicator when in play mode */}
+              {isPlaying && (
+                <div style={{
+                  marginTop: '8px',
+                  padding: '4px 8px',
+                  backgroundColor: '#ff6b35',
+                  color: '#f9f6ef',
+                  borderRadius: '2px',
+                  fontSize: '9px',
+                  fontWeight: '600',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.05em',
+                  display: 'flex',
+                  alignItems: 'center'
+                }}>
+                  <span>Tour Mode</span>
+                </div>
+              )}
             </div>
             
             <button
-              onClick={closeSidePanel}
+              onClick={() => {
+                if (isPlaying) {
+                  stopPlay();
+                } else {
+                  closeSidePanel();
+                }
+              }}
               style={{
-                background: 'none',
+                backgroundColor: '#1a1a1a',
+                color: '#f9f6ef',
                 border: 'none',
-                fontSize: '24px',
-                cursor: 'pointer',
-                color: '#1a1a1a',
-                padding: '4px',
+                padding: '8px 16px',
                 borderRadius: '2px',
-                transition: 'all 0.2s ease'
+                fontSize: '11px',
+                fontWeight: '600',
+                fontFamily: 'Sora, sans-serif',
+                cursor: 'pointer',
+                transition: 'all 0.2s ease',
+                textTransform: 'uppercase',
+                letterSpacing: '0.05em',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px'
               }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.backgroundColor = '#1a1a1a10';
+                e.currentTarget.style.backgroundColor = '#333333';
               }}
               onMouseLeave={(e) => {
-                e.currentTarget.style.backgroundColor = 'transparent';
+                e.currentTarget.style.backgroundColor = '#1a1a1a';
               }}
             >
-              ×
+              {isPlaying ? (
+                <span>Stop Tour</span>
+              ) : (
+                <>
+                  <span>×</span>
+                  <span>Close</span>
+                </>
+              )}
             </button>
           </div>
 

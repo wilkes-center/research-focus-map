@@ -36,8 +36,3 @@ Thumbs.db
 
 # TypeScript
 *.tsbuildinfo
-
-# Geocoded addresses data (can be regenerated) - only ignore root level
-/geocoded-addresses.json
-# Allow the public version to be tracked for deployment
-!public/geocoded-addresses.json
