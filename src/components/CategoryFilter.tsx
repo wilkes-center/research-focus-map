@@ -242,7 +242,7 @@ const CategoryFilter: React.FC<CategoryFilterProps> = ({
   return (
     <div style={{
       position: 'absolute',
-      bottom: '20px',
+      top: '80px',
       left: '20px',
       zIndex: 1000,
       backgroundColor: 'rgba(249, 246, 239, 0.3)',
