@@ -97,6 +97,7 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
   const [sidePanelOpen, setSidePanelOpen] = useState(false);
   const [isUofUFocused, setIsUofUFocused] = useState(false);
   const [hoveredMarkerId, setHoveredMarkerId] = useState<string | null>(null);
+  const [showingFilteredResults, setShowingFilteredResults] = useState(false);
   const [viewState, setViewState] = useState({
     longitude: 0,
     latitude: 20,
@@ -118,6 +119,24 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
     
     return departmentMatch && termMatch && typeMatch;
   });
+
+  // Auto-show filtered results when filters are applied
+  useEffect(() => {
+    const hasActiveFilters = selectedFilters.departments.length > 0 || 
+                           selectedFilters.terms.length > 0 || 
+                           selectedFilters.types.length > 0;
+    
+    if (hasActiveFilters && !isPlaying) {
+      setShowingFilteredResults(true);
+      setSidePanelOpen(true);
+    } else if (!hasActiveFilters) {
+      setShowingFilteredResults(false);
+      // Only close sidebar if no area or cluster is selected
+      if (!selectedArea && !selectedCluster) {
+        setSidePanelOpen(false);
+      }
+    }
+  }, [selectedFilters, isPlaying, selectedArea, selectedCluster]);
 
   // Create stable clustered markers (not dependent on zoom level)
   const clusteredMarkers = useMemo(() => {
@@ -208,6 +227,7 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
     setSelectedArea(null);
     setSelectedCluster(null);
     setPreviousCluster(null);
+    setShowingFilteredResults(false);
   };
 
   const handleClusterClick = (cluster: MarkerCluster) => {
@@ -216,6 +236,9 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
       console.log('⏹️ Tour stopped due to user interaction');
       stopPlay();
     }
+    
+    // Clear filtered results view when clicking on markers
+    setShowingFilteredResults(false);
     
     if (cluster.isCluster) {
       // For proximity clusters, decide whether to zoom in or show cluster panel
@@ -245,6 +268,9 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
       console.log('⏹️ Tour stopped due to project selection');
       stopPlay();
     }
+    
+    // Clear filtered results view when clicking on projects
+    setShowingFilteredResults(false);
     
     // Store the current cluster as previous cluster if we're viewing a cluster
     if (selectedCluster) {
@@ -1416,6 +1442,14 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
                         fontSize: '13px',
                         color: '#1a1a1a',
                         marginBottom: '8px',
+                        fontWeight: '500'
+                      }}>
+                        {area.researcherName.toLowerCase().replace(/\b\w/g, l => l.toUpperCase())}
+                      </div>
+                      <div style={{
+                        fontSize: '12px',
+                        color: '#1a1a1a',
+                        lineHeight: '1.4',
                         opacity: 0.8
                       }}>
                         {area.description.length > 100 
@@ -1438,6 +1472,160 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
                           letterSpacing: '0.05em'
                         }}>
                           {area.category}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Filtered Results Display */}
+            {showingFilteredResults && !selectedArea && !selectedCluster && (
+              <div style={{ padding: '24px 0', paddingBottom: '60px' }}>
+                <div style={{ padding: '0 24px 16px 24px' }}>
+                  <h3 style={{
+                    margin: '0 0 8px 0',
+                    fontSize: '18px',
+                    fontWeight: '600',
+                    color: '#1a1a1a',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.05em'
+                  }}>
+                    Filtered Results
+                  </h3>
+                  <p style={{
+                    margin: '0',
+                    fontSize: '14px',
+                    color: '#718096',
+                    lineHeight: '1.5'
+                  }}>
+                    Showing {filteredAreas.length} research project{filteredAreas.length !== 1 ? 's' : ''} matching your selected filters. Click on any project below to view its details.
+                  </p>
+                  
+                  {/* Active filters summary */}
+                  <div style={{ 
+                    marginTop: '12px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '6px'
+                  }}>
+                    {selectedFilters.departments.length > 0 && (
+                      <div style={{ fontSize: '12px', color: '#1a1a1a' }}>
+                        <strong>Departments:</strong> {selectedFilters.departments.join(', ')}
+                      </div>
+                    )}
+                    {selectedFilters.terms.length > 0 && (
+                      <div style={{ fontSize: '12px', color: '#1a1a1a' }}>
+                        <strong>Terms:</strong> {selectedFilters.terms.join(', ')}
+                      </div>
+                    )}
+                    {selectedFilters.types.length > 0 && (
+                      <div style={{ fontSize: '12px', color: '#1a1a1a' }}>
+                        <strong>Types:</strong> {selectedFilters.types.join(', ')}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                
+                <div style={{ overflowY: 'visible' }}>
+                  {filteredAreas.map((area, index) => (
+                    <div
+                      key={`${area.name}-${area.researcherName}-${index}`}
+                      onClick={() => handleProjectClick(area)}
+                      style={{
+                        padding: '16px 24px',
+                        borderBottom: '1px solid #1a1a1a20',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s ease',
+                        borderLeft: `4px solid ${getDepartmentColor(area.category)}`
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.backgroundColor = '#1a1a1a05';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.backgroundColor = 'transparent';
+                      }}
+                    >
+                      <div style={{
+                        fontSize: '15px',
+                        fontWeight: '600',
+                        color: '#1a1a1a',
+                        marginBottom: '8px',
+                        lineHeight: '1.3'
+                      }}>
+                        {area.name}
+                      </div>
+                      <div style={{
+                        fontSize: '13px',
+                        color: '#1a1a1a',
+                        marginBottom: '8px',
+                        fontWeight: '500'
+                      }}>
+                        Researcher: {area.researcherName.toLowerCase().replace(/\b\w/g, l => l.toUpperCase())}
+                      </div>
+                      {area.geographicFocus && (
+                        <div style={{
+                          fontSize: '12px',
+                          color: '#1a1a1a',
+                          marginBottom: '8px',
+                          fontStyle: 'italic',
+                          opacity: 0.9
+                        }}>
+                          📍 {area.geographicFocus}
+                        </div>
+                      )}
+                      <div style={{
+                        fontSize: '12px',
+                        color: '#1a1a1a',
+                        lineHeight: '1.4',
+                        opacity: 0.8,
+                        marginBottom: '8px'
+                      }}>
+                        {area.description.length > 120 
+                          ? area.description.substring(0, 120) + '...' 
+                          : area.description}
+                      </div>
+                      <div style={{
+                        display: 'flex',
+                        gap: '6px',
+                        flexWrap: 'wrap'
+                      }}>
+                        <span style={{
+                          padding: '3px 8px',
+                          backgroundColor: getDepartmentColor(area.category),
+                          color: '#f9f6ef',
+                          borderRadius: '2px',
+                          fontSize: '10px',
+                          fontWeight: '600',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.05em'
+                        }}>
+                          {area.category}
+                        </span>
+                        <span style={{
+                          padding: '3px 8px',
+                          backgroundColor: '#1a1a1a',
+                          color: '#f9f6ef',
+                          borderRadius: '2px',
+                          fontSize: '10px',
+                          fontWeight: '600',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.05em'
+                        }}>
+                          {area.term}
+                        </span>
+                        <span style={{
+                          padding: '3px 8px',
+                          backgroundColor: '#1a1a1a80',
+                          color: '#f9f6ef',
+                          borderRadius: '2px',
+                          fontSize: '10px',
+                          fontWeight: '600',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.05em'
+                        }}>
+                          {area.type}
                         </span>
                       </div>
                     </div>
