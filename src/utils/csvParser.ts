@@ -36,6 +36,7 @@ let geocodedCache: GeocodedData | null = null;
  */
 async function loadGeocodedAddresses(): Promise<GeocodedData> {
   if (geocodedCache) {
+    console.log(`📍 Using cached geocoded addresses: ${Object.keys(geocodedCache).length} entries`);
     return geocodedCache;
   }
 
@@ -43,19 +44,42 @@ async function loadGeocodedAddresses(): Promise<GeocodedData> {
     // Use PUBLIC_URL for correct path in production builds
     const geocodedPath = `${process.env.PUBLIC_URL}/geocoded-addresses.json`;
     console.log('🔍 Loading geocoded addresses from:', geocodedPath);
+    console.log('🔍 Current PUBLIC_URL:', process.env.PUBLIC_URL);
+    console.log('🔍 Current window.location:', window.location.href);
     
     const response = await fetch(geocodedPath);
+    console.log('📡 Fetch response status:', response.status, response.statusText);
+    
     if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+      throw new Error(`HTTP error! status: ${response.status} - ${response.statusText}`);
     }
     
-    const data = await response.json();
+    const responseText = await response.text();
+    console.log('📄 Response text length:', responseText.length);
+    console.log('📄 Response starts with:', responseText.substring(0, 100));
+    
+    const data = JSON.parse(responseText);
     geocodedCache = data as GeocodedData;
-    console.log(`📍 Loaded ${Object.keys(geocodedCache || {}).length} pre-geocoded addresses`);
+    
+    const cacheSize = Object.keys(geocodedCache || {}).length;
+    console.log(`📍 Successfully loaded ${cacheSize} pre-geocoded addresses`);
+    
+    // Log a sample of campus addresses for debugging
+    const campusAddresses = Object.entries(geocodedCache || {})
+      .filter(([_, data]) => data && data.mapCategory === 'campus')
+      .slice(0, 3);
+    console.log('📍 Sample campus addresses:', campusAddresses.map(([key, _]) => key));
+    
     return geocodedCache;
   } catch (error) {
     console.error('⚠️ Could not load pre-geocoded addresses:', error);
     console.error('Current PUBLIC_URL:', process.env.PUBLIC_URL);
+    console.error('Error details:', {
+      name: error instanceof Error ? error.name : 'Unknown',
+      message: error instanceof Error ? error.message : 'Unknown error',
+      stack: error instanceof Error ? error.stack : undefined
+    });
+    
     const emptyCache: GeocodedData = {};
     geocodedCache = emptyCache;
     return emptyCache;
@@ -64,30 +88,44 @@ async function loadGeocodedAddresses(): Promise<GeocodedData> {
 
 // Get coordinates from pre-geocoded data or cache
 const getCoordinates = async (address: string, mapCategory: string): Promise<{ lat: number; lng: number } | null> => {
+  console.log(`🎯 getCoordinates called with address: "${address}", mapCategory: "${mapCategory}"`);
+  
   // Load pre-geocoded data if not already loaded
   if (!geocodedCache) {
+    console.log('📦 Geocoded cache not loaded, loading now...');
     geocodedCache = await loadGeocodedAddresses();
+  } else {
+    console.log(`📦 Using existing geocoded cache with ${Object.keys(geocodedCache).length} entries`);
   }
 
   // First check if this is a raw coordinate string
   const coords = parseCoordinates(address);
   if (coords) {
+    console.log(`📍 Found raw coordinates: ${coords.lat}, ${coords.lng}`);
     // If these are raw coordinates, look up by coordinates to see if we have a geocoded entry
     const coordKey = `${coords.lat}, ${coords.lng}`;
     if (geocodedCache[coordKey]) {
       const data = geocodedCache[coordKey];
+      console.log(`✅ Found geocoded entry for coordinates: ${coordKey}`);
       return { lat: data.lat, lng: data.lng };
     }
     // If no geocoded entry found, use the raw coordinates
+    console.log(`📍 Using raw coordinates directly: ${coords.lat}, ${coords.lng}`);
     return coords;
   }
 
   // Normalize mapCategory for comparison
   const normalizedMapCategory = mapCategory.toLowerCase();
+  console.log(`🏷️ Normalized mapCategory: "${normalizedMapCategory}"`);
 
   // For campus addresses, first try to find a geocoded address that matches
   if (normalizedMapCategory === 'campus') {
-    console.log(`🔍 Looking for campus address: "${address}"`);
+    console.log(`🏫 Processing campus address: "${address}"`);
+    console.log(`🏫 Total geocoded entries: ${Object.keys(geocodedCache || {}).length}`);
+    
+    // Count campus addresses in cache
+    const campusCount = Object.values(geocodedCache || {}).filter(data => data && data.mapCategory === 'campus').length;
+    console.log(`🏫 Campus addresses in cache: ${campusCount}`);
     
     // First try exact match
     if (geocodedCache[address]) {
@@ -98,6 +136,8 @@ const getCoordinates = async (address: string, mapCategory: string): Promise<{ l
     
     // Try to find a matching geocoded address by normalizing and comparing
     const normalizedAddress = address.toLowerCase().replace(/\s+/g, ' ').trim();
+    console.log(`🔍 Searching for normalized address: "${normalizedAddress}"`);
+    
     const geocodedEntry = Object.entries(geocodedCache).find(([key, data]) => {
       if (data && data.mapCategory === 'campus') {
         const normalizedKey = key.toLowerCase().replace(/\s+/g, ' ').trim();
@@ -116,19 +156,29 @@ const getCoordinates = async (address: string, mapCategory: string): Promise<{ l
     }
     
     console.log(`⚠️ No match found for campus address: "${address}"`);
-    console.log(`Available campus addresses:`, Object.keys(geocodedCache || {}).filter(key => 
+    const availableCampusAddresses = Object.keys(geocodedCache || {}).filter(key => 
       geocodedCache && geocodedCache[key] && geocodedCache[key].mapCategory === 'campus'
-    ).slice(0, 5));
+    );
+    console.log(`🏫 Available campus addresses (${availableCampusAddresses.length}):`, availableCampusAddresses.slice(0, 5));
+    
+    // Show some similar addresses for debugging
+    const similarAddresses = availableCampusAddresses.filter(key => 
+      key.toLowerCase().includes('mario') || key.toLowerCase().includes('capecchi')
+    );
+    if (similarAddresses.length > 0) {
+      console.log(`🔍 Similar addresses found:`, similarAddresses);
+    }
   }
 
   // Check pre-geocoded data for exact match (for non-campus addresses)
   if (geocodedCache[address]) {
     const data = geocodedCache[address];
+    console.log(`✅ Found exact match for non-campus address: "${address}"`);
     return { lat: data.lat, lng: data.lng };
   }
 
   // If no pre-geocoded data found, use fallback
-  console.warn(`⚠️  Address not found in pre-geocoded data: ${address}`);
+  console.warn(`⚠️ Address not found in pre-geocoded data: ${address}`);
   const fallbackCoords = { lat: 40.76407, lng: -111.84360 }; // Campus center
   return fallbackCoords;
 };
