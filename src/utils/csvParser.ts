@@ -40,60 +40,94 @@ async function loadGeocodedAddresses(): Promise<GeocodedData> {
     return geocodedCache;
   }
 
-  try {
-    // Use PUBLIC_URL for correct path in production builds
-    const geocodedPath = `${process.env.PUBLIC_URL}/geocoded-addresses.json`;
-    console.log('🔍 Loading geocoded addresses from:', geocodedPath);
-    console.log('🔍 Current PUBLIC_URL:', process.env.PUBLIC_URL);
-    console.log('🔍 Current window.location:', window.location.href);
+  // Try multiple paths for loading geocoded addresses
+  const pathsToTry = [
+    `${process.env.PUBLIC_URL}/geocoded-addresses.json`,
+    `${process.env.PUBLIC_URL || ''}/geocoded-addresses.json`,
+    '/research-focus-map/geocoded-addresses.json',
+    './geocoded-addresses.json',
+    'geocoded-addresses.json'
+  ];
+
+  for (let i = 0; i < pathsToTry.length; i++) {
+    const geocodedPath = pathsToTry[i];
     
-    const response = await fetch(geocodedPath);
-    console.log('📡 Fetch response status:', response.status, response.statusText);
-    
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status} - ${response.statusText}`);
+    try {
+      console.log(`🔍 Attempt ${i + 1}/${pathsToTry.length}: Loading geocoded addresses from: ${geocodedPath}`);
+      console.log('🔍 Current PUBLIC_URL:', process.env.PUBLIC_URL);
+      console.log('🔍 Current window.location:', window.location.href);
+      
+      const response = await fetch(geocodedPath);
+      console.log('📡 Fetch response status:', response.status, response.statusText);
+      
+      if (!response.ok) {
+        console.warn(`⚠️ Failed to load from ${geocodedPath}: ${response.status} - ${response.statusText}`);
+        continue; // Try next path
+      }
+      
+      const responseText = await response.text();
+      console.log('📄 Response text length:', responseText.length);
+      console.log('📄 Response starts with:', responseText.substring(0, 100));
+      
+      const data = JSON.parse(responseText);
+      geocodedCache = data as GeocodedData;
+      
+      const cacheSize = Object.keys(geocodedCache || {}).length;
+      console.log(`📍 Successfully loaded ${cacheSize} pre-geocoded addresses from ${geocodedPath}`);
+      
+      // Log a sample of campus addresses for debugging
+      const campusAddresses = Object.entries(geocodedCache || {})
+        .filter(([_, data]) => data && data.mapCategory === 'campus')
+        .slice(0, 3);
+      console.log('📍 Sample campus addresses:', campusAddresses.map(([key, _]) => key));
+      
+      return geocodedCache;
+      
+    } catch (error) {
+      console.warn(`⚠️ Failed to load from ${geocodedPath}:`, error);
+      if (i === pathsToTry.length - 1) {
+        // This was the last attempt
+        console.error('❌ All attempts to load geocoded addresses failed');
+        console.error('Error details:', {
+          name: error instanceof Error ? error.name : 'Unknown',
+          message: error instanceof Error ? error.message : 'Unknown error',
+          stack: error instanceof Error ? error.stack : undefined
+        });
+      }
+      continue; // Try next path
     }
-    
-    const responseText = await response.text();
-    console.log('📄 Response text length:', responseText.length);
-    console.log('📄 Response starts with:', responseText.substring(0, 100));
-    
-    const data = JSON.parse(responseText);
-    geocodedCache = data as GeocodedData;
-    
-    const cacheSize = Object.keys(geocodedCache || {}).length;
-    console.log(`📍 Successfully loaded ${cacheSize} pre-geocoded addresses`);
-    
-    // Log a sample of campus addresses for debugging
-    const campusAddresses = Object.entries(geocodedCache || {})
-      .filter(([_, data]) => data && data.mapCategory === 'campus')
-      .slice(0, 3);
-    console.log('📍 Sample campus addresses:', campusAddresses.map(([key, _]) => key));
-    
-    return geocodedCache;
-  } catch (error) {
-    console.error('⚠️ Could not load pre-geocoded addresses:', error);
-    console.error('Current PUBLIC_URL:', process.env.PUBLIC_URL);
-    console.error('Error details:', {
-      name: error instanceof Error ? error.name : 'Unknown',
-      message: error instanceof Error ? error.message : 'Unknown error',
-      stack: error instanceof Error ? error.stack : undefined
-    });
-    
-    const emptyCache: GeocodedData = {};
-    geocodedCache = emptyCache;
-    return emptyCache;
   }
+
+  // If we get here, all attempts failed
+  console.error('❌ Could not load pre-geocoded addresses from any path');
+  console.error('Tried paths:', pathsToTry);
+  
+  // Return empty cache but don't store it globally
+  return {};
 }
 
 // Get coordinates from pre-geocoded data or cache
 const getCoordinates = async (address: string, mapCategory: string): Promise<{ lat: number; lng: number } | null> => {
   console.log(`🎯 getCoordinates called with address: "${address}", mapCategory: "${mapCategory}"`);
   
-  // Load pre-geocoded data if not already loaded
-  if (!geocodedCache) {
-    console.log('📦 Geocoded cache not loaded, loading now...');
+  // Load pre-geocoded data if not already loaded OR if cache is empty
+  if (!geocodedCache || Object.keys(geocodedCache).length === 0) {
+    console.log('📦 Geocoded cache not loaded or empty, loading now...');
     geocodedCache = await loadGeocodedAddresses();
+    
+    // Double-check that we actually loaded data
+    const loadedCount = Object.keys(geocodedCache || {}).length;
+    console.log(`📦 After loading: ${loadedCount} geocoded entries`);
+    
+    if (loadedCount === 0) {
+      console.error('❌ Failed to load any geocoded addresses - cache is still empty!');
+      // Try to reload once more
+      console.log('🔄 Attempting to reload geocoded addresses...');
+      geocodedCache = null; // Reset cache
+      geocodedCache = await loadGeocodedAddresses();
+      const retryCount = Object.keys(geocodedCache || {}).length;
+      console.log(`🔄 After retry: ${retryCount} geocoded entries`);
+    }
   } else {
     console.log(`📦 Using existing geocoded cache with ${Object.keys(geocodedCache).length} entries`);
   }
