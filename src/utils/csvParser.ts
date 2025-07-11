@@ -82,14 +82,30 @@ const getCoordinates = async (address: string, mapCategory: string): Promise<{ l
     return coords;
   }
 
+  // Normalize mapCategory for comparison
+  const normalizedMapCategory = mapCategory.toLowerCase();
+
   // For campus addresses, first try to find a geocoded address that matches
-  if (mapCategory === 'Campus') {
+  if (normalizedMapCategory === 'campus') {
+    console.log(`🔍 Looking for campus address: "${address}"`);
+    
+    // First try exact match
+    if (geocodedCache[address]) {
+      const data = geocodedCache[address];
+      console.log(`✅ Found exact match for: "${address}"`);
+      return { lat: data.lat, lng: data.lng };
+    }
+    
     // Try to find a matching geocoded address by normalizing and comparing
     const normalizedAddress = address.toLowerCase().replace(/\s+/g, ' ').trim();
     const geocodedEntry = Object.entries(geocodedCache).find(([key, data]) => {
       if (data && data.mapCategory === 'campus') {
         const normalizedKey = key.toLowerCase().replace(/\s+/g, ' ').trim();
-        return normalizedKey === normalizedAddress;
+        const matches = normalizedKey === normalizedAddress;
+        if (matches) {
+          console.log(`✅ Found normalized match: "${key}" matches "${address}"`);
+        }
+        return matches;
       }
       return false;
     });
@@ -98,9 +114,14 @@ const getCoordinates = async (address: string, mapCategory: string): Promise<{ l
       const [_, data] = geocodedEntry;
       return { lat: data.lat, lng: data.lng };
     }
+    
+    console.log(`⚠️ No match found for campus address: "${address}"`);
+    console.log(`Available campus addresses:`, Object.keys(geocodedCache || {}).filter(key => 
+      geocodedCache && geocodedCache[key] && geocodedCache[key].mapCategory === 'campus'
+    ).slice(0, 5));
   }
 
-  // Check pre-geocoded data for exact match
+  // Check pre-geocoded data for exact match (for non-campus addresses)
   if (geocodedCache[address]) {
     const data = geocodedCache[address];
     return { lat: data.lat, lng: data.lng };
@@ -126,36 +147,65 @@ export const parseCoordinates = (coordString: string): { lat: number; lng: numbe
 };
 
 // Function to parse CSV text using Papa Parse
-const parseCSVText = async (csvText: string): Promise<ResearchFocusData[]> => {
-  return new Promise((resolve, reject) => {
-    Papa.parse(csvText, {
-      header: true,
-      skipEmptyLines: true,
-      complete: (results) => {
-        if (results.errors.length > 0) {
-          console.warn('CSV parsing warnings:', results.errors);
-        }
-        resolve(results.data as ResearchFocusData[]);
-      },
-      error: (error: Error) => {
-        reject(error);
-      }
-    });
+export const parseCSVText = (csvText: string): ResearchFocusData[] => {
+  const result = Papa.parse<ResearchFocusData>(csvText, {
+    header: true,
+    skipEmptyLines: true,
+    transformHeader: (header) => header.trim()
   });
+
+  if (result.errors.length > 0) {
+    console.warn('CSV parsing warnings:', result.errors);
+  }
+
+  console.log(`📄 CSV Parsing Results:`);
+  console.log(`   Raw entries parsed: ${result.data.length}`);
+  console.log(`   Parsing errors/warnings: ${result.errors.length}`);
+  
+  // Log a sample of the first few entries to understand the data structure
+  if (result.data.length > 0) {
+    console.log(`📋 Sample entry (first row):`, {
+      Name: result.data[0].Name,
+      Department: result.data[0].Department,
+      Map: result.data[0].Map,
+      'Geographic Focus (Data)': result.data[0]['Geographic Focus (Data)'],
+      'Project Title': result.data[0]['Project Title']
+    });
+  }
+
+  return result.data;
 };
 
 // Function to parse CSV data and convert to ResearchArea format
 export const parseResearchFocusCSV = async (csvData: ResearchFocusData[]): Promise<ResearchArea[]> => {
   const researchAreas: ResearchArea[] = [];
+  let skippedCount = 0;
+  let processedCount = 0;
+  let coordinateFailures = 0;
+  
+  console.log(`🔍 Starting to process ${csvData.length} CSV entries`);
   
   // Process entries in batches to maintain consistent behavior
   const batchSize = 10;
   for (let i = 0; i < csvData.length; i += batchSize) {
     const batch = csvData.slice(i, i + batchSize);
     
-    const batchPromises = batch.map(async (row) => {
-      // Skip rows with missing essential data
-      if (!row.Name || !row['Geographic Focus (Data)'] || !row.Map || !row.Department) {
+    const batchPromises = batch.map(async (row, batchIndex) => {
+      const rowIndex = i + batchIndex;
+      
+      // Check for missing essential data with detailed logging
+      const missingFields = [];
+      if (!row.Name) missingFields.push('Name');
+      if (!row['Geographic Focus (Data)']) missingFields.push('Geographic Focus (Data)');
+      if (!row.Map) missingFields.push('Map');
+      if (!row.Department) missingFields.push('Department');
+      
+      if (missingFields.length > 0) {
+        console.log(`⚠️  Row ${rowIndex + 1}: Skipping due to missing fields: ${missingFields.join(', ')}`);
+        console.log(`    Name: "${row.Name || 'MISSING'}"`, 
+                   `Department: "${row.Department || 'MISSING'}"`,
+                   `Map: "${row.Map || 'MISSING'}"`);
+        skippedCount++;
         return null;
       }
       
@@ -165,6 +215,7 @@ export const parseResearchFocusCSV = async (csvData: ResearchFocusData[]): Promi
       coordinates = await getCoordinates(row['Geographic Focus (Data)'], row.Map);
       
       if (coordinates) {
+        processedCount++;
         const researchArea: ResearchArea = {
           name: row['Project Title'] || row.Name || 'Unknown Project',
           description: row['Project Summary'] || 'No description available',
@@ -181,14 +232,23 @@ export const parseResearchFocusCSV = async (csvData: ResearchFocusData[]): Promi
         };
         
         return researchArea;
+      } else {
+        console.log(`❌ Row ${rowIndex + 1}: Failed to get coordinates for "${row['Geographic Focus (Data)']}" (Map: ${row.Map})`);
+        coordinateFailures++;
+        return null;
       }
-      
-      return null;
     });
     
     const batchResults = await Promise.all(batchPromises);
     researchAreas.push(...batchResults.filter((area): area is ResearchArea => area !== null));
   }
+  
+  console.log(`📊 Processing Summary:`);
+  console.log(`   Total CSV entries: ${csvData.length}`);
+  console.log(`   Successfully processed: ${processedCount}`);
+  console.log(`   Skipped (missing fields): ${skippedCount}`);
+  console.log(`   Coordinate failures: ${coordinateFailures}`);
+  console.log(`   Final research areas: ${researchAreas.length}`);
   
   return researchAreas;
 };
@@ -206,56 +266,32 @@ export const getCacheStats = () => {
   };
 };
 
-// Function to load and parse CSV file
+// Function to load and parse research focus data
 export const loadResearchFocusData = async (): Promise<ResearchArea[]> => {
   try {
-    // Use PUBLIC_URL for correct path in production builds
+    console.log('🚀 Starting to load research focus data...');
+    
     const csvPath = `${process.env.PUBLIC_URL || ''}/ResearchFocus.csv`;
-    console.log('Attempting to fetch CSV from:', csvPath);
+    console.log(`📂 Loading CSV from: ${csvPath}`);
     
     const response = await fetch(csvPath);
     if (!response.ok) {
-      throw new Error(`Failed to fetch CSV file: ${response.statusText} (${response.status})`);
+      throw new Error(`Failed to fetch CSV: ${response.statusText}`);
     }
     
     const csvText = await response.text();
-    console.log('CSV text length:', csvText.length);
+    console.log(`📝 CSV file loaded, size: ${csvText.length} characters`);
     
-    const csvData = await parseCSVText(csvText);
-    console.log('Parsed CSV data entries:', csvData.length);
-    console.log('First CSV row:', csvData[0]);
+    const csvData = parseCSVText(csvText);
+    console.log(`✅ CSV parsed successfully, ${csvData.length} entries found`);
     
-    console.log('Starting to process research areas...');
-    
-    // Log initial cache statistics
-    const initialCacheStats = getCacheStats();
-    console.log(`💾 Cache status: ${initialCacheStats.memoryCache} in memory, ${initialCacheStats.preGeocodedCache} pre-geocoded`);
-    
-    const startTime = Date.now();
     const researchAreas = await parseResearchFocusCSV(csvData);
-    const endTime = Date.now();
-    
-    console.log('Raw research areas from parser:', researchAreas.length);
-    console.log('Sample research area:', researchAreas[0]);
-    
-    // Log final cache statistics
-    const finalCacheStats = getCacheStats();
-    const duration = ((endTime - startTime) / 1000).toFixed(2);
-    
-    console.log(`\n🎯 Processing Complete:`);
-    console.log(`✅ Loaded ${researchAreas.length} research areas`);
-    console.log(`⏱️  Processing time: ${duration} seconds`);
-    console.log(`💾 Using ${finalCacheStats.preGeocodedCache} pre-geocoded addresses`);
-    console.log(`🚀 Memory cache: ${finalCacheStats.memoryCache} addresses`);
-    
-    if (finalCacheStats.preGeocodedCache > 0) {
-      console.log(`⚡ All geocoding data loaded from pre-generated file - no API calls needed!`);
-    }
+    console.log(`🎯 Final result: ${researchAreas.length} research areas loaded`);
     
     return researchAreas;
   } catch (error) {
-    console.error('Error loading research focus data:', error);
-    return [];
+    console.error('❌ Error loading research focus data:', error);
+    throw error;
   }
 };
 

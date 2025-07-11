@@ -140,7 +140,9 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
 
   // Create stable clustered markers (not dependent on zoom level)
   const clusteredMarkers = useMemo(() => {
-    const markers = clusterMarkers(filteredAreas, viewState.zoom, selectedArea);
+    // Use all research areas for tour mode, filtered areas for normal browsing
+    const areasToCluster = isPlaying ? researchAreas : filteredAreas;
+    const markers = clusterMarkers(areasToCluster, viewState.zoom, selectedArea);
     
     // Filter for campus view and log info
     if (isUofUFocused) {
@@ -160,7 +162,7 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
     }
     
     return markers;
-  }, [filteredAreas, viewState.zoom, isUofUFocused, selectedArea]);
+  }, [filteredAreas, researchAreas, isPlaying, viewState.zoom, isUofUFocused, selectedArea]);
 
   // Reset UofU focus when zooming out
   React.useEffect(() => {
@@ -293,6 +295,9 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
   const startPlay = () => {
     if (clusteredMarkers.length === 0) return;
     
+    // Calculate total research areas in tour
+    const totalResearchAreas = clusteredMarkers.reduce((sum, marker) => sum + marker.areas.length, 0);
+    
     // Clear any existing state first
     if (playTimerRef.current) {
       clearTimeout(playTimerRef.current);
@@ -312,7 +317,8 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
     
     // Start the tour
     setIsPlaying(true);
-    console.log('🎬 Tour started with', clusteredMarkers.length, 'markers');
+    console.log(`🎬 Tour started with ${clusteredMarkers.length} markers representing ${totalResearchAreas} research areas`);
+    console.log(`📊 Tour breakdown: ${clusteredMarkers.filter(m => m.isCluster).length} clusters, ${clusteredMarkers.filter(m => !m.isCluster).length} individual projects`);
   };
 
   const stopPlay = () => {
@@ -532,6 +538,18 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
     animation: 'markerPulse 2s infinite',
     zIndex: -1,
   });
+
+  const goToPreviousMarker = () => {
+    if (currentMarkerIndex > 0) {
+      setCurrentMarkerIndex(prev => prev - 1);
+    }
+  };
+
+  const goToNextMarker = () => {
+    if (currentMarkerIndex < clusteredMarkers.length - 1) {
+      setCurrentMarkerIndex(prev => prev + 1);
+    }
+  };
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100vh', display: 'flex' }}>
@@ -823,21 +841,106 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
             </button>
           )}
 
-          {/* Current marker indicator during play */}
+          {/* Tour navigation controls - main map */}
           {isPlaying && (
             <div style={{
-              backgroundColor: 'rgba(26,26,26,0.9)',
-              color: '#f9f6ef',
-              padding: '8px 12px',
+              backgroundColor: '#f9f6ef',
+              border: '1px solid #1a1a1a20',
               borderRadius: '2px',
-              fontSize: '10px',
-              fontWeight: '600',
-              fontFamily: 'Sora, sans-serif',
-              textAlign: 'center',
-              textTransform: 'uppercase',
-              letterSpacing: '0.05em'
+              padding: '8px 12px',
+              boxShadow: '0 2px 8px rgba(26,26,26,0.15)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px',
+              minWidth: '200px'
             }}>
-              {currentMarkerIndex + 1} / {clusteredMarkers.length}
+              <div style={{
+                fontSize: '10px',
+                fontWeight: '600',
+                color: '#1a1a1a',
+                textTransform: 'uppercase',
+                letterSpacing: '0.05em',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'flex-start',
+                gap: '1px'
+              }}>
+                <div>Location {currentMarkerIndex + 1} / {clusteredMarkers.length}</div>
+                <div style={{ fontSize: '8px', opacity: 0.7 }}>
+                  {clusteredMarkers.reduce((sum, marker) => sum + marker.areas.length, 0)} Research Areas
+                </div>
+              </div>
+              
+              <div style={{
+                display: 'flex',
+                gap: '4px'
+              }}>
+                {/* Previous button */}
+                <button
+                  onClick={goToPreviousMarker}
+                  disabled={currentMarkerIndex <= 0}
+                  style={{
+                    backgroundColor: currentMarkerIndex <= 0 ? 'rgba(26,26,26,0.2)' : '#1a1a1a',
+                    color: currentMarkerIndex <= 0 ? 'rgba(26,26,26,0.4)' : '#f9f6ef',
+                    border: 'none',
+                    padding: '8px 10px',
+                    borderRadius: '2px',
+                    fontSize: '12px',
+                    fontWeight: '600',
+                    fontFamily: 'Sora, sans-serif',
+                    cursor: currentMarkerIndex <= 0 ? 'not-allowed' : 'pointer',
+                    transition: 'all 0.2s ease',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    opacity: currentMarkerIndex <= 0 ? 0.5 : 1
+                  }}
+                  onMouseEnter={(e) => {
+                    if (currentMarkerIndex > 0) {
+                      e.currentTarget.style.backgroundColor = '#333333';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = currentMarkerIndex <= 0 ? 'rgba(26,26,26,0.2)' : '#1a1a1a';
+                  }}
+                  title="Previous"
+                >
+                  ◀
+                </button>
+
+                {/* Next button */}
+                <button
+                  onClick={goToNextMarker}
+                  disabled={currentMarkerIndex >= clusteredMarkers.length - 1}
+                  style={{
+                    backgroundColor: currentMarkerIndex >= clusteredMarkers.length - 1 ? 'rgba(26,26,26,0.2)' : '#1a1a1a',
+                    color: currentMarkerIndex >= clusteredMarkers.length - 1 ? 'rgba(26,26,26,0.4)' : '#f9f6ef',
+                    border: 'none',
+                    padding: '8px 10px',
+                    borderRadius: '2px',
+                    fontSize: '12px',
+                    fontWeight: '600',
+                    fontFamily: 'Sora, sans-serif',
+                    cursor: currentMarkerIndex >= clusteredMarkers.length - 1 ? 'not-allowed' : 'pointer',
+                    transition: 'all 0.2s ease',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    opacity: currentMarkerIndex >= clusteredMarkers.length - 1 ? 0.5 : 1
+                  }}
+                  onMouseEnter={(e) => {
+                    if (currentMarkerIndex < clusteredMarkers.length - 1) {
+                      e.currentTarget.style.backgroundColor = '#333333';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = currentMarkerIndex >= clusteredMarkers.length - 1 ? 'rgba(26,26,26,0.2)' : '#1a1a1a';
+                  }}
+                  title="Next"
+                >
+                  ▶
+                </button>
+              </div>
             </div>
           )}
 
@@ -1099,19 +1202,114 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
               {/* Tour indicator when in play mode */}
               {isPlaying && (
                 <div style={{
-                  marginTop: '8px',
-                  padding: '4px 8px',
-                  backgroundColor: '#ff6b35',
-                  color: '#f9f6ef',
-                  borderRadius: '2px',
-                  fontSize: '9px',
-                  fontWeight: '600',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.05em',
                   display: 'flex',
-                  alignItems: 'center'
+                  alignItems: 'center',
+                  gap: '8px'
                 }}>
-                  <span>Tour Mode</span>
+                  <div style={{
+                    marginTop: '8px',
+                    padding: '4px 8px',
+                    backgroundColor: '#ff6b35',
+                    color: '#f9f6ef',
+                    borderRadius: '2px',
+                    fontSize: '9px',
+                    fontWeight: '600',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.05em',
+                    display: 'flex',
+                    alignItems: 'center'
+                  }}>
+                    <span>Tour Mode</span>
+                  </div>
+                  
+                  {/* Side panel tour navigation controls */}
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    marginTop: '8px'
+                  }}>
+                    <div style={{
+                      fontSize: '9px',
+                      fontWeight: '600',
+                      color: '#1a1a1a',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.05em'
+                    }}>
+                      {currentMarkerIndex + 1} / {clusteredMarkers.length}
+                    </div>
+                    
+                    <div style={{
+                      display: 'flex',
+                      gap: '2px'
+                    }}>
+                      {/* Previous button */}
+                      <button
+                        onClick={goToPreviousMarker}
+                        disabled={currentMarkerIndex <= 0}
+                        style={{
+                          backgroundColor: currentMarkerIndex <= 0 ? 'rgba(26,26,26,0.2)' : '#1a1a1a',
+                          color: currentMarkerIndex <= 0 ? 'rgba(26,26,26,0.4)' : '#f9f6ef',
+                          border: 'none',
+                          padding: '4px 6px',
+                          borderRadius: '2px',
+                          fontSize: '8px',
+                          fontWeight: '600',
+                          fontFamily: 'Sora, sans-serif',
+                          cursor: currentMarkerIndex <= 0 ? 'not-allowed' : 'pointer',
+                          transition: 'all 0.2s ease',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          opacity: currentMarkerIndex <= 0 ? 0.5 : 1
+                        }}
+                        onMouseEnter={(e) => {
+                          if (currentMarkerIndex > 0) {
+                            e.currentTarget.style.backgroundColor = '#333333';
+                          }
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.backgroundColor = currentMarkerIndex <= 0 ? 'rgba(26,26,26,0.2)' : '#1a1a1a';
+                        }}
+                        title="Previous"
+                      >
+                        ◀
+                      </button>
+
+                      {/* Next button */}
+                      <button
+                        onClick={goToNextMarker}
+                        disabled={currentMarkerIndex >= clusteredMarkers.length - 1}
+                        style={{
+                          backgroundColor: currentMarkerIndex >= clusteredMarkers.length - 1 ? 'rgba(26,26,26,0.2)' : '#1a1a1a',
+                          color: currentMarkerIndex >= clusteredMarkers.length - 1 ? 'rgba(26,26,26,0.4)' : '#f9f6ef',
+                          border: 'none',
+                          padding: '4px 6px',
+                          borderRadius: '2px',
+                          fontSize: '8px',
+                          fontWeight: '600',
+                          fontFamily: 'Sora, sans-serif',
+                          cursor: currentMarkerIndex >= clusteredMarkers.length - 1 ? 'not-allowed' : 'pointer',
+                          transition: 'all 0.2s ease',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          opacity: currentMarkerIndex >= clusteredMarkers.length - 1 ? 0.5 : 1
+                        }}
+                        onMouseEnter={(e) => {
+                          if (currentMarkerIndex < clusteredMarkers.length - 1) {
+                            e.currentTarget.style.backgroundColor = '#333333';
+                          }
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.backgroundColor = currentMarkerIndex >= clusteredMarkers.length - 1 ? 'rgba(26,26,26,0.2)' : '#1a1a1a';
+                        }}
+                        title="Next"
+                      >
+                        ▶
+                      </button>
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
