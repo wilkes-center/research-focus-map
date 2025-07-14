@@ -108,6 +108,7 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentMarkerIndex, setCurrentMarkerIndex] = useState(0);
   const [playProgress, setPlayProgress] = useState(0);
+  const [timeLeft, setTimeLeft] = useState(60); // Add countdown state
   const playTimerRef = useRef<NodeJS.Timeout | null>(null);
   const progressTimerRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -270,6 +271,7 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
       setIsPlaying(false);
       setCurrentMarkerIndex(0);
       setPlayProgress(0);
+      setTimeLeft(60); // Reset time left
       
       if (playTimerRef.current) {
         clearTimeout(playTimerRef.current);
@@ -364,6 +366,7 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
     // Reset all tour state
     setCurrentMarkerIndex(0);
     setPlayProgress(0);
+    setTimeLeft(60); // Reset time left
     setSelectedArea(null);
     setSelectedCluster(null);
     setPreviousCluster(null);
@@ -379,6 +382,7 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
     setIsPlaying(false);
     setCurrentMarkerIndex(0);
     setPlayProgress(0);
+    setTimeLeft(60); // Reset time left
     
     // Clear all timers
     if (playTimerRef.current) {
@@ -460,15 +464,19 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
 
     // Start progress timer (updates every 100ms for smooth progress bar)
     let progress = 0;
+    let timeRemaining = 60; // Track remaining time
     progressTimerRef.current = setInterval(() => {
       progress += 100 / 60000; // 60 seconds = 60000ms
+      timeRemaining -= 0.1; // Decrease by 0.1 seconds every 100ms
       setPlayProgress(Math.min(progress, 100));
+      setTimeLeft(Math.max(0, Math.ceil(timeRemaining))); // Update countdown, ensure it doesn't go below 0
     }, 100);
 
     // Set timer for next area (1 minute = 60000ms)
     playTimerRef.current = setTimeout(() => {
       setCurrentMarkerIndex(index + 1);
       setPlayProgress(0);
+      setTimeLeft(60); // Reset countdown for next marker
       if (progressTimerRef.current) {
         clearInterval(progressTimerRef.current);
         progressTimerRef.current = null;
@@ -613,12 +621,42 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
   const goToPreviousMarker = () => {
     if (currentMarkerIndex > 0) {
       setCurrentMarkerIndex(prev => prev - 1);
+      setPlayProgress(0);
+      setTimeLeft(60); // Reset countdown when manually navigating
+      
+      // Clear existing timers
+      if (progressTimerRef.current) {
+        clearInterval(progressTimerRef.current);
+        progressTimerRef.current = null;
+      }
+      if (playTimerRef.current) {
+        clearTimeout(playTimerRef.current);
+        playTimerRef.current = null;
+      }
+      
+      // Navigate to the previous marker and restart timer
+      navigateToMarker(currentMarkerIndex - 1);
     }
   };
 
   const goToNextMarker = () => {
     if (currentMarkerIndex < tourEntries.length - 1) {
       setCurrentMarkerIndex(prev => prev + 1);
+      setPlayProgress(0);
+      setTimeLeft(60); // Reset countdown when manually navigating
+      
+      // Clear existing timers
+      if (progressTimerRef.current) {
+        clearInterval(progressTimerRef.current);
+        progressTimerRef.current = null;
+      }
+      if (playTimerRef.current) {
+        clearTimeout(playTimerRef.current);
+        playTimerRef.current = null;
+      }
+      
+      // Navigate to the next marker and restart timer
+      navigateToMarker(currentMarkerIndex + 1);
     }
   };
 
@@ -1346,6 +1384,22 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
                       >
                         ▶
                       </button>
+                    </div>
+                    
+                    {/* Timer countdown display */}
+                    <div style={{
+                      padding: '6px 12px',
+                      backgroundColor: '#1a1a1a',
+                      color: '#f9f6ef',
+                      borderRadius: '2px',
+                      fontSize: '12px',
+                      fontWeight: '600',
+                      fontFamily: 'Sora, sans-serif',
+                      letterSpacing: '0.05em',
+                      minWidth: '45px',
+                      textAlign: 'center'
+                    }}>
+                      {timeLeft}s
                     </div>
                   </div>
                 </div>
