@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import styled from 'styled-components';
-import { MapPin, Info, HelpCircle, MessageSquare, Github, Play } from 'lucide-react';
+import { MapPin, Info, HelpCircle, MessageSquare, Github } from 'lucide-react';
 
 interface IntroPageProps {
   onComplete: () => void;
@@ -120,7 +120,7 @@ const IntroPage: React.FC<IntroPageProps> = ({ onComplete }) => {
           )}
 
           {activeSection === 'howto' && (
-            <WideGrid>
+            <CenteredContainer>
               {/* Quick Start Guide */}
               <GuideCard>
                 <SectionTitle>Quick Start Guide</SectionTitle>
@@ -168,35 +168,7 @@ const IntroPage: React.FC<IntroPageProps> = ({ onComplete }) => {
                   </Step>
                 </StepList>
               </GuideCard>
-              
-              {/* Video Tutorial */}
-              <TutorialCard>
-                <TutorialHeader>
-                  <h2>Video Tutorial</h2>
-                </TutorialHeader>
-                
-                <VideoContainer>
-                  {/* Play button overlay */}
-                  <PlayButtonOverlay>
-                    <PlayButton>
-                      <Play size={40} className="ml-1" />
-                    </PlayButton>
-                  </PlayButtonOverlay>
-                  
-                  {/* Video thumbnail/placeholder */}
-                  <VideoPlaceholder>
-                    (Video tutorial would be embedded here)
-                  </VideoPlaceholder>
-                </VideoContainer>
-                
-                <VideoInfo>
-                  <div>
-                    <VideoTitle>Introduction to Research Focus Map</VideoTitle>
-                    <VideoDuration>Duration: 3:45</VideoDuration>
-                  </div>
-                </VideoInfo>
-              </TutorialCard>
-            </WideGrid>
+            </CenteredContainer>
           )}
 
           {activeSection === 'feedback' && (
@@ -421,16 +393,6 @@ const Content = styled.div`
   margin-bottom: 2rem;
 `;
 
-const WideGrid = styled.div`
-  display: grid;
-  grid-template-columns: 2fr 3fr;
-  gap: 2rem;
-  
-  @media (max-width: 1024px) {
-    grid-template-columns: 1fr;
-  }
-`;
-
 const ContentCard = styled.div<ContentCardProps>`
   background-color: rgba(255, 255, 255, 0.7);
   backdrop-filter: blur(8px);
@@ -518,89 +480,6 @@ const StepDescription = styled.p`
   font-size: 9pt;
   font-weight: 400;
   color: #1a1a1a;
-  margin: 0;
-`;
-
-const TutorialCard = styled.div`
-  background-color: #1a1a1a;
-  border-radius: 1rem;
-  overflow: hidden;
-  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
-`;
-
-const TutorialHeader = styled.div`
-  padding: 1.5rem;
-  border-bottom: 1px solid #333;
-  
-  h2 {
-    font-family: 'Sora', sans-serif;
-    font-size: 16pt;
-    font-weight: 600;
-    color: #f9f6ef;
-    margin: 0;
-  }
-`;
-
-const VideoContainer = styled.div`
-  aspect-ratio: 16 / 9;
-  background-color: #222;
-  position: relative;
-`;
-
-const PlayButtonOverlay = styled.div`
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 10;
-`;
-
-const PlayButton = styled.div`
-  width: 5rem;
-  height: 5rem;
-  border-radius: 50%;
-  background-color: rgba(117, 29, 12, 0.8);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  color: white;
-  transition: background-color 0.2s;
-  
-  &:hover {
-    background-color: #751d0c;
-  }
-`;
-
-const VideoPlaceholder = styled.div`
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #555;
-  font-family: 'Sora', sans-serif;
-`;
-
-const VideoInfo = styled.div`
-  padding: 1.5rem;
-  background-color: #222;
-  border-top: 1px solid #333;
-`;
-
-const VideoTitle = styled.h3`
-  font-family: 'Sora', sans-serif;
-  font-size: 12pt;
-  font-weight: 500;
-  color: #f9f6ef;
-  margin: 0 0 0.25rem 0;
-`;
-
-const VideoDuration = styled.p`
-  font-family: 'Sora', sans-serif;
-  font-size: 9pt;
-  color: rgba(255, 255, 255, 0.7);
   margin: 0;
 `;
 

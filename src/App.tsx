@@ -92,13 +92,13 @@ const App: React.FC = () => {
   };
   
   // Extract unique values for each filter type
-  const departments = Array.from(new Set(researchAreas.map(area => area.category))).sort();
+  const departments = Array.from(new Set(researchAreas.map(area => area.department))).sort();
   const terms = Array.from(new Set(researchAreas.map(area => area.term))).sort();
   const types = Array.from(new Set(researchAreas.map(area => area.type))).sort();
 
   // Calculate filtered research areas based on selected filters
   const filteredResearchAreas = researchAreas.filter(area => {
-    const departmentMatch = selectedFilters.departments.length === 0 || selectedFilters.departments.includes(area.category);
+    const departmentMatch = selectedFilters.departments.length === 0 || selectedFilters.departments.includes(area.department);
     const termMatch = selectedFilters.terms.length === 0 || selectedFilters.terms.includes(area.term);
     const typeMatch = selectedFilters.types.length === 0 || selectedFilters.types.includes(area.type);
     

@@ -4,6 +4,7 @@ export interface ResearchArea {
   latitude: number;
   longitude: number;
   category: string;
+  department: string; // Original department name from CSV
   term: string;
   type: string;
   mapFocus: 'World' | 'Utah' | 'Campus';

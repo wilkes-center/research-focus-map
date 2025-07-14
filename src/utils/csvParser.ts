@@ -1,5 +1,6 @@
 import { ResearchArea } from '../types/ResearchArea';
 import Papa from 'papaparse';
+import { GEOCODED_ADDRESSES } from '../data/geocodedAddresses';
 
 export interface ResearchFocusData {
   Name: string;
@@ -15,209 +16,58 @@ export interface ResearchFocusData {
   Links: string;
 }
 
-// Interface for pre-geocoded data
-interface GeocodedData {
-  [address: string]: {
-    address: string;
-    lat: number;
-    lng: number;
-    mapCategory: string;
-    method: 'coordinates' | 'geocoded' | 'fallback';
-    timestamp: string;
-    error?: string;
-  };
+export interface GeocodedAddress {
+  address: string;
+  lat: number;
+  lng: number;
+  mapCategory: string;
+  method: string;
+  timestamp: string;
+  error?: string;
 }
 
-// Cache for geocoded addresses
-let geocodedCache: GeocodedData | null = null;
+// Default campus coordinates for University of Utah
+const CAMPUS_CENTER = { lat: 40.76407, lng: -111.84360 };
+
+// Global cache for geocoded addresses (now loaded from imported data)
+let geocodedAddressCache: { [key: string]: GeocodedAddress } = {};
+let cacheLoaded = false;
 
 /**
- * Loads pre-geocoded addresses from JSON file
+ * Initialize geocoded addresses from imported data
  */
-async function loadGeocodedAddresses(): Promise<GeocodedData> {
-  if (geocodedCache) {
-    console.log(`📍 Using cached geocoded addresses: ${Object.keys(geocodedCache).length} entries`);
-    return geocodedCache;
+const initializeGeocodedAddresses = (): void => {
+  if (cacheLoaded) {
+    console.log('📦 Geocoded addresses already initialized');
+    return;
   }
 
-  // Try multiple paths for loading geocoded addresses
-  const pathsToTry = [
-    `${process.env.PUBLIC_URL}/geocoded-addresses.json`,
-    `${process.env.PUBLIC_URL || ''}/geocoded-addresses.json`,
-    '/research-focus-map/geocoded-addresses.json',
-    './geocoded-addresses.json',
-    'geocoded-addresses.json'
-  ];
-
-  for (let i = 0; i < pathsToTry.length; i++) {
-    const geocodedPath = pathsToTry[i];
-    
-    try {
-      console.log(`🔍 Attempt ${i + 1}/${pathsToTry.length}: Loading geocoded addresses from: ${geocodedPath}`);
-      console.log('🔍 Current PUBLIC_URL:', process.env.PUBLIC_URL);
-      console.log('🔍 Current window.location:', window.location.href);
-      
-      const response = await fetch(geocodedPath);
-      console.log('📡 Fetch response status:', response.status, response.statusText);
-      
-      if (!response.ok) {
-        console.warn(`⚠️ Failed to load from ${geocodedPath}: ${response.status} - ${response.statusText}`);
-        continue; // Try next path
-      }
-      
-      const responseText = await response.text();
-      console.log('📄 Response text length:', responseText.length);
-      console.log('📄 Response starts with:', responseText.substring(0, 100));
-      
-      const data = JSON.parse(responseText);
-      geocodedCache = data as GeocodedData;
-      
-      const cacheSize = Object.keys(geocodedCache || {}).length;
-      console.log(`📍 Successfully loaded ${cacheSize} pre-geocoded addresses from ${geocodedPath}`);
-      
-      // Log a sample of campus addresses for debugging
-      const campusAddresses = Object.entries(geocodedCache || {})
-        .filter(([_, data]) => data && data.mapCategory === 'campus')
-        .slice(0, 3);
-      console.log('📍 Sample campus addresses:', campusAddresses.map(([key, _]) => key));
-      
-      return geocodedCache;
-      
-    } catch (error) {
-      console.warn(`⚠️ Failed to load from ${geocodedPath}:`, error);
-      if (i === pathsToTry.length - 1) {
-        // This was the last attempt
-        console.error('❌ All attempts to load geocoded addresses failed');
-        console.error('Error details:', {
-          name: error instanceof Error ? error.name : 'Unknown',
-          message: error instanceof Error ? error.message : 'Unknown error',
-          stack: error instanceof Error ? error.stack : undefined
-        });
-      }
-      continue; // Try next path
-    }
-  }
-
-  // If we get here, all attempts failed
-  console.error('❌ Could not load pre-geocoded addresses from any path');
-  console.error('Tried paths:', pathsToTry);
+  geocodedAddressCache = GEOCODED_ADDRESSES as { [key: string]: GeocodedAddress };
+  cacheLoaded = true;
   
-  // Return empty cache but don't store it globally
-  return {};
-}
-
-// Get coordinates from pre-geocoded data or cache
-const getCoordinates = async (address: string, mapCategory: string): Promise<{ lat: number; lng: number } | null> => {
-  console.log(`🎯 getCoordinates called with address: "${address}", mapCategory: "${mapCategory}"`);
+  // Count entries by category
+  const campusCount = Object.values(geocodedAddressCache).filter(entry => entry.mapCategory === 'campus').length;
+  const totalCount = Object.keys(geocodedAddressCache).length;
   
-  // Load pre-geocoded data if not already loaded OR if cache is empty
-  if (!geocodedCache || Object.keys(geocodedCache).length === 0) {
-    console.log('📦 Geocoded cache not loaded or empty, loading now...');
-    geocodedCache = await loadGeocodedAddresses();
-    
-    // Double-check that we actually loaded data
-    const loadedCount = Object.keys(geocodedCache || {}).length;
-    console.log(`📦 After loading: ${loadedCount} geocoded entries`);
-    
-    if (loadedCount === 0) {
-      console.error('❌ Failed to load any geocoded addresses - cache is still empty!');
-      // Try to reload once more
-      console.log('🔄 Attempting to reload geocoded addresses...');
-      geocodedCache = null; // Reset cache
-      geocodedCache = await loadGeocodedAddresses();
-      const retryCount = Object.keys(geocodedCache || {}).length;
-      console.log(`🔄 After retry: ${retryCount} geocoded entries`);
-    }
-  } else {
-    console.log(`📦 Using existing geocoded cache with ${Object.keys(geocodedCache).length} entries`);
-  }
-
-  // First check if this is a raw coordinate string
-  const coords = parseCoordinates(address);
-  if (coords) {
-    console.log(`📍 Found raw coordinates: ${coords.lat}, ${coords.lng}`);
-    // If these are raw coordinates, look up by coordinates to see if we have a geocoded entry
-    const coordKey = `${coords.lat}, ${coords.lng}`;
-    if (geocodedCache[coordKey]) {
-      const data = geocodedCache[coordKey];
-      console.log(`✅ Found geocoded entry for coordinates: ${coordKey}`);
-      return { lat: data.lat, lng: data.lng };
-    }
-    // If no geocoded entry found, use the raw coordinates
-    console.log(`📍 Using raw coordinates directly: ${coords.lat}, ${coords.lng}`);
-    return coords;
-  }
-
-  // Normalize mapCategory for comparison
-  const normalizedMapCategory = mapCategory.toLowerCase();
-  console.log(`🏷️ Normalized mapCategory: "${normalizedMapCategory}"`);
-
-  // For campus addresses, first try to find a geocoded address that matches
-  if (normalizedMapCategory === 'campus') {
-    console.log(`🏫 Processing campus address: "${address}"`);
-    console.log(`🏫 Total geocoded entries: ${Object.keys(geocodedCache || {}).length}`);
-    
-    // Count campus addresses in cache
-    const campusCount = Object.values(geocodedCache || {}).filter(data => data && data.mapCategory === 'campus').length;
-    console.log(`🏫 Campus addresses in cache: ${campusCount}`);
-    
-    // First try exact match
-    if (geocodedCache[address]) {
-      const data = geocodedCache[address];
-      console.log(`✅ Found exact match for: "${address}"`);
-      return { lat: data.lat, lng: data.lng };
-    }
-    
-    // Try to find a matching geocoded address by normalizing and comparing
-    const normalizedAddress = address.toLowerCase().replace(/\s+/g, ' ').trim();
-    console.log(`🔍 Searching for normalized address: "${normalizedAddress}"`);
-    
-    const geocodedEntry = Object.entries(geocodedCache).find(([key, data]) => {
-      if (data && data.mapCategory === 'campus') {
-        const normalizedKey = key.toLowerCase().replace(/\s+/g, ' ').trim();
-        const matches = normalizedKey === normalizedAddress;
-        if (matches) {
-          console.log(`✅ Found normalized match: "${key}" matches "${address}"`);
-        }
-        return matches;
-      }
-      return false;
+  console.log(`✅ Initialized geocoded addresses from imported data`);
+  console.log(`📊 Geocoded cache stats: ${totalCount} total entries, ${campusCount} campus addresses`);
+  
+  // Log a few sample campus addresses
+  const campusAddresses = Object.entries(geocodedAddressCache)
+    .filter(([_, entry]) => entry.mapCategory === 'campus')
+    .slice(0, 3);
+  
+  if (campusAddresses.length > 0) {
+    console.log('🏫 Sample campus addresses:');
+    campusAddresses.forEach(([address, entry]) => {
+      console.log(`   "${address}" → ${entry.lat}, ${entry.lng}`);
     });
-
-    if (geocodedEntry) {
-      const [_, data] = geocodedEntry;
-      return { lat: data.lat, lng: data.lng };
-    }
-    
-    console.log(`⚠️ No match found for campus address: "${address}"`);
-    const availableCampusAddresses = Object.keys(geocodedCache || {}).filter(key => 
-      geocodedCache && geocodedCache[key] && geocodedCache[key].mapCategory === 'campus'
-    );
-    console.log(`🏫 Available campus addresses (${availableCampusAddresses.length}):`, availableCampusAddresses.slice(0, 5));
-    
-    // Show some similar addresses for debugging
-    const similarAddresses = availableCampusAddresses.filter(key => 
-      key.toLowerCase().includes('mario') || key.toLowerCase().includes('capecchi')
-    );
-    if (similarAddresses.length > 0) {
-      console.log(`🔍 Similar addresses found:`, similarAddresses);
-    }
   }
-
-  // Check pre-geocoded data for exact match (for non-campus addresses)
-  if (geocodedCache[address]) {
-    const data = geocodedCache[address];
-    console.log(`✅ Found exact match for non-campus address: "${address}"`);
-    return { lat: data.lat, lng: data.lng };
-  }
-
-  // If no pre-geocoded data found, use fallback
-  console.warn(`⚠️ Address not found in pre-geocoded data: ${address}`);
-  const fallbackCoords = { lat: 40.76407, lng: -111.84360 }; // Campus center
-  return fallbackCoords;
 };
 
-// Function to parse coordinates from coordinate strings
+/**
+ * Parse coordinates from a coordinate string like "39.217341473967124, -114.1987696163944"
+ */
 export const parseCoordinates = (coordString: string): { lat: number; lng: number } | null => {
   if (!coordString || coordString.trim() === '') return null;
   
@@ -230,7 +80,57 @@ export const parseCoordinates = (coordString: string): { lat: number; lng: numbe
   return null;
 };
 
-// Function to parse CSV text using Papa Parse
+/**
+ * Get coordinates for a research entry based on its data and map type
+ */
+const getCoordinates = (geographicData: string, mapType: string): { lat: number; lng: number } | null => {
+  console.log(`🎯 Getting coordinates for: "${geographicData}" (Map: ${mapType})`);
+  
+  // First try to parse as coordinates (for World and Utah entries)
+  const coords = parseCoordinates(geographicData);
+  if (coords) {
+    console.log(`📍 Found coordinates: ${coords.lat}, ${coords.lng}`);
+    return coords;
+  }
+  
+  // For campus entries, try to find a matching geocoded location
+  if (mapType.toLowerCase() === 'campus') {
+    console.log(`🏫 Processing campus location: "${geographicData}"`);
+    
+    // Ensure geocoded addresses are initialized
+    initializeGeocodedAddresses();
+    
+    // Try exact match first
+    if (geocodedAddressCache[geographicData]) {
+      const entry = geocodedAddressCache[geographicData];
+      console.log(`✅ Found exact geocoded match: ${geographicData} → ${entry.lat}, ${entry.lng}`);
+      return { lat: entry.lat, lng: entry.lng };
+    }
+    
+    // Try partial match
+    const partialMatch = Object.keys(geocodedAddressCache).find(key => 
+      key.toLowerCase().includes(geographicData.toLowerCase()) ||
+      geographicData.toLowerCase().includes(key.toLowerCase())
+    );
+    
+    if (partialMatch) {
+      const entry = geocodedAddressCache[partialMatch];
+      console.log(`✅ Found partial geocoded match: ${partialMatch} for ${geographicData} → ${entry.lat}, ${entry.lng}`);
+      return { lat: entry.lat, lng: entry.lng };
+    }
+    
+    // Default to campus center for any campus location
+    console.log(`🏫 Using campus center for: ${geographicData}`);
+    return CAMPUS_CENTER;
+  }
+  
+  console.warn(`⚠️ Could not parse coordinates for: "${geographicData}" (Map: ${mapType})`);
+  return null;
+};
+
+/**
+ * Parse CSV text using Papa Parse
+ */
 export const parseCSVText = (csvText: string): ResearchFocusData[] => {
   const result = Papa.parse<ResearchFocusData>(csvText, {
     header: true,
@@ -246,130 +146,129 @@ export const parseCSVText = (csvText: string): ResearchFocusData[] => {
   console.log(`   Raw entries parsed: ${result.data.length}`);
   console.log(`   Parsing errors/warnings: ${result.errors.length}`);
   
-  // Log a sample of the first few entries to understand the data structure
-  if (result.data.length > 0) {
-    console.log(`📋 Sample entry (first row):`, {
-      Name: result.data[0].Name,
-      Department: result.data[0].Department,
-      Map: result.data[0].Map,
-      'Geographic Focus (Data)': result.data[0]['Geographic Focus (Data)'],
-      'Project Title': result.data[0]['Project Title']
-    });
-  }
-
   return result.data;
 };
 
-// Function to parse CSV data and convert to ResearchArea format
-export const parseResearchFocusCSV = async (csvData: ResearchFocusData[]): Promise<ResearchArea[]> => {
-  const researchAreas: ResearchArea[] = [];
-  let skippedCount = 0;
-  let processedCount = 0;
-  let coordinateFailures = 0;
+/**
+ * Parse research focus data from CSV format
+ */
+export const parseResearchFocusCSV = (csvData: ResearchFocusData[]): ResearchArea[] => {
+  console.log(`📊 Starting to parse ${csvData.length} research focus entries`);
   
-  console.log(`🔍 Starting to process ${csvData.length} CSV entries`);
+  // Initialize geocoded addresses
+  initializeGeocodedAddresses();
   
-  // Process entries in batches to maintain consistent behavior
-  const batchSize = 10;
-  for (let i = 0; i < csvData.length; i += batchSize) {
-    const batch = csvData.slice(i, i + batchSize);
+  const results: ResearchArea[] = [];
+  let successCount = 0;
+  let errorCount = 0;
+  
+  for (let i = 0; i < csvData.length; i++) {
+    const row = csvData[i];
     
-    const batchPromises = batch.map(async (row, batchIndex) => {
-      const rowIndex = i + batchIndex;
-      
-      // Check for missing essential data with detailed logging
-      const missingFields = [];
-      if (!row.Name) missingFields.push('Name');
-      if (!row['Geographic Focus (Data)']) missingFields.push('Geographic Focus (Data)');
-      if (!row.Map) missingFields.push('Map');
-      if (!row.Department) missingFields.push('Department');
-      
-      if (missingFields.length > 0) {
-        console.log(`⚠️  Row ${rowIndex + 1}: Skipping due to missing fields: ${missingFields.join(', ')}`);
-        console.log(`    Name: "${row.Name || 'MISSING'}"`, 
-                   `Department: "${row.Department || 'MISSING'}"`,
-                   `Map: "${row.Map || 'MISSING'}"`);
-        skippedCount++;
-        return null;
+    try {
+      // Skip entries without required data
+      if (!row.Name || !row['Geographic Focus (Data)'] || !row.Map) {
+        console.log(`⚠️ Skipping entry ${i + 1}: Missing required fields`);
+        errorCount++;
+        continue;
       }
       
-      let coordinates: { lat: number; lng: number } | null = null;
-      
-      // Get coordinates using the new unified method
-      coordinates = await getCoordinates(row['Geographic Focus (Data)'], row.Map);
+      // Get coordinates
+      const coordinates = getCoordinates(row['Geographic Focus (Data)'], row.Map);
       
       if (coordinates) {
-        processedCount++;
         const researchArea: ResearchArea = {
           name: row['Project Title'] || row.Name || 'Unknown Project',
           description: row['Project Summary'] || 'No description available',
           latitude: coordinates.lat,
           longitude: coordinates.lng,
-          category: row.Department,
+          category: getDepartmentCategory(row.Department || ''),
+          department: row.Department || 'Unknown Department',
           term: row.Term || 'Unknown',
           type: row.Type || 'Unknown',
-          mapFocus: row.Map as 'World' | 'Utah' | 'Campus',
+          mapFocus: (row.Map as 'World' | 'Utah' | 'Campus') || 'Campus',
           researcherName: row.Name || 'Unknown Researcher',
           collaborator: row.Collaborator || '',
           links: row.Links || '',
-          geographicFocus: row.Map === 'Campus' ? row['Geographic Focus (Data)'] : (row['Geographic Focus (Title)'] || '')
+          geographicFocus: row['Geographic Focus (Title)'] || row['Geographic Focus (Data)'] || 'Unknown location'
         };
         
-        return researchArea;
+        results.push(researchArea);
+        successCount++;
       } else {
-        console.log(`❌ Row ${rowIndex + 1}: Failed to get coordinates for "${row['Geographic Focus (Data)']}" (Map: ${row.Map})`);
-        coordinateFailures++;
-        return null;
+        console.warn(`⚠️ Could not get coordinates for entry ${i + 1}: ${row.Name}`);
+        errorCount++;
       }
-    });
-    
-    const batchResults = await Promise.all(batchPromises);
-    researchAreas.push(...batchResults.filter((area): area is ResearchArea => area !== null));
+    } catch (error) {
+      console.error(`❌ Error processing entry ${i + 1}:`, error);
+      errorCount++;
+    }
   }
   
-  console.log(`📊 Processing Summary:`);
-  console.log(`   Total CSV entries: ${csvData.length}`);
-  console.log(`   Successfully processed: ${processedCount}`);
-  console.log(`   Skipped (missing fields): ${skippedCount}`);
-  console.log(`   Coordinate failures: ${coordinateFailures}`);
-  console.log(`   Final research areas: ${researchAreas.length}`);
+  console.log(`✅ Parsing complete: ${successCount} successful, ${errorCount} errors`);
   
-  return researchAreas;
+  // Log statistics by map type
+  const mapTypeStats = results.reduce((acc, area) => {
+    acc[area.mapFocus] = (acc[area.mapFocus] || 0) + 1;
+    return acc;
+  }, {} as Record<string, number>);
+  
+  console.log('📊 Results by map type:', mapTypeStats);
+  
+  return results;
 };
 
-// Function to get cache statistics
-export const getCacheStats = () => {
-  const totalEntries = Object.keys(geocodedCache || {}).length;
-  const cacheSize = totalEntries > 0 ? `${Math.round(JSON.stringify({ geocodedCache }).length / 1024)}KB` : '0KB';
-  
-  return {
-    totalEntries,
-    cacheSize,
-    memoryCache: Object.keys(geocodedCache || {}).length,
-    preGeocodedCache: Object.keys(geocodedCache || {}).length
-  };
-};
-
-// Function to load and parse research focus data
+/**
+ * Load research focus data from CSV file
+ */
 export const loadResearchFocusData = async (): Promise<ResearchArea[]> => {
   try {
-    console.log('🚀 Starting to load research focus data...');
+    console.log('📄 Loading ResearchFocus.csv...');
     
-    const csvPath = `${process.env.PUBLIC_URL || ''}/ResearchFocus.csv`;
-    console.log(`📂 Loading CSV from: ${csvPath}`);
+    // Determine the correct path for both development and production
+    const isProduction = process.env.NODE_ENV === 'production';
+    const publicUrl = process.env.PUBLIC_URL || '';
     
-    const response = await fetch(csvPath);
-    if (!response.ok) {
-      throw new Error(`Failed to fetch CSV: ${response.statusText}`);
+    const paths = [
+      `${publicUrl}/ResearchFocus.csv`,
+      '/research-focus-map/ResearchFocus.csv',
+      '/ResearchFocus.csv',
+      './ResearchFocus.csv'
+    ];
+    
+    console.log(`🌍 Environment: ${process.env.NODE_ENV}, PUBLIC_URL: ${publicUrl}`);
+    
+    let response: Response | null = null;
+    let successfulPath = '';
+    
+    for (const path of paths) {
+      try {
+        console.log(`🔍 Attempting to load CSV from: ${path}`);
+        response = await fetch(path);
+        
+        if (response.ok) {
+          successfulPath = path;
+          console.log(`✅ Successfully loaded CSV from: ${path}`);
+          break;
+        } else {
+          console.log(`❌ Failed to load from ${path}: ${response.status} ${response.statusText}`);
+        }
+      } catch (error) {
+        console.log(`❌ Error loading from ${path}:`, error);
+      }
+    }
+    
+    if (!response || !response.ok) {
+      throw new Error(`Failed to load CSV from any path. Last status: ${response?.status || 'unknown'}`);
     }
     
     const csvText = await response.text();
-    console.log(`📝 CSV file loaded, size: ${csvText.length} characters`);
+    console.log(`📄 CSV file loaded from ${successfulPath}, ${csvText.length} characters`);
     
     const csvData = parseCSVText(csvText);
     console.log(`✅ CSV parsed successfully, ${csvData.length} entries found`);
     
-    const researchAreas = await parseResearchFocusCSV(csvData);
+    const researchAreas = parseResearchFocusCSV(csvData);
     console.log(`🎯 Final result: ${researchAreas.length} research areas loaded`);
     
     return researchAreas;
@@ -379,7 +278,9 @@ export const loadResearchFocusData = async (): Promise<ResearchArea[]> => {
   }
 };
 
-// Function to determine category based on department
+/**
+ * Determine category based on department
+ */
 export const getDepartmentCategory = (department: string): string => {
   const categoryMap: Record<string, string> = {
     'ENVST': 'Climate',
@@ -406,4 +307,4 @@ export const getDepartmentCategory = (department: string): string => {
   };
   
   return categoryMap[department] || 'Research';
-}; 
+};

@@ -113,7 +113,7 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
 
   // Filter areas based on selected filters
   const filteredAreas = researchAreas.filter(area => {
-    const departmentMatch = selectedFilters.departments.length === 0 || selectedFilters.departments.includes(area.category);
+    const departmentMatch = selectedFilters.departments.length === 0 || selectedFilters.departments.includes(area.department);
     const termMatch = selectedFilters.terms.length === 0 || selectedFilters.terms.includes(area.term);
     const typeMatch = selectedFilters.types.length === 0 || selectedFilters.types.includes(area.type);
     
@@ -141,7 +141,34 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
   // Create stable clustered markers (not dependent on zoom level)
   const clusteredMarkers = useMemo(() => {
     // Use all research areas for tour mode, filtered areas for normal browsing
-    const areasToCluster = isPlaying ? researchAreas : filteredAreas;
+    let areasToCluster = isPlaying ? researchAreas : filteredAreas;
+    
+    // Sort research areas by term for tour mode with custom order
+    if (isPlaying) {
+      const termOrder = [
+        'Summer 25', 'Spring 25', 'Fall 24', 'Summer 24', 'Spring 24', 'Fall 23', 
+        'Summer 23', 'Spring 23', 'Fall 22', 'Summer 22', 'Spring 22', 'Fall 21',
+        'Summer 21', 'Spring 21', 'Fall 20', 'Summer 20', 'Spring 20'
+      ];
+      
+      areasToCluster = [...areasToCluster].sort((a, b) => {
+        const aIndex = termOrder.indexOf(a.term);
+        const bIndex = termOrder.indexOf(b.term);
+        
+        // If both terms are in the order array, sort by their position
+        if (aIndex !== -1 && bIndex !== -1) {
+          return aIndex - bIndex;
+        }
+        
+        // If only one term is in the order array, prioritize it
+        if (aIndex !== -1) return -1;
+        if (bIndex !== -1) return 1;
+        
+        // If neither term is in the order array, sort alphabetically
+        return a.term.localeCompare(b.term);
+      });
+    }
+    
     const markers = clusterMarkers(areasToCluster, viewState.zoom, selectedArea);
     
     // Filter for campus view and log info
@@ -163,6 +190,35 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
     
     return markers;
   }, [filteredAreas, researchAreas, isPlaying, viewState.zoom, isUofUFocused, selectedArea]);
+
+  // Create individual tour entries for tour mode
+  const tourEntries = useMemo(() => {
+    const termOrder = [
+      'Summer 25', 'Spring 25', 'Fall 24', 'Summer 24', 'Spring 24', 'Fall 23', 
+      'Summer 23', 'Spring 23', 'Fall 22', 'Summer 22', 'Spring 22', 'Fall 21',
+      'Summer 21', 'Spring 21', 'Fall 20', 'Summer 20', 'Spring 20'
+    ];
+    
+    // Sort all research areas by term for tour mode
+    const sortedAreas = [...researchAreas].sort((a, b) => {
+      const aIndex = termOrder.indexOf(a.term);
+      const bIndex = termOrder.indexOf(b.term);
+      
+      // If both terms are in the order array, sort by their position
+      if (aIndex !== -1 && bIndex !== -1) {
+        return aIndex - bIndex;
+      }
+      
+      // If only one term is in the order array, prioritize it
+      if (aIndex !== -1) return -1;
+      if (bIndex !== -1) return 1;
+      
+      // If neither term is in the order array, sort alphabetically
+      return a.term.localeCompare(b.term);
+    });
+    
+    return sortedAreas;
+  }, [researchAreas]);
 
   // Reset UofU focus when zooming out
   React.useEffect(() => {
@@ -293,10 +349,7 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
 
   // Play functionality
   const startPlay = () => {
-    if (clusteredMarkers.length === 0) return;
-    
-    // Calculate total research areas in tour
-    const totalResearchAreas = clusteredMarkers.reduce((sum, marker) => sum + marker.areas.length, 0);
+    if (tourEntries.length === 0) return;
     
     // Clear any existing state first
     if (playTimerRef.current) {
@@ -317,8 +370,8 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
     
     // Start the tour
     setIsPlaying(true);
-    console.log(`🎬 Tour started with ${clusteredMarkers.length} markers representing ${totalResearchAreas} research areas`);
-    console.log(`📊 Tour breakdown: ${clusteredMarkers.filter(m => m.isCluster).length} clusters, ${clusteredMarkers.filter(m => !m.isCluster).length} individual projects`);
+    console.log(`🎬 Tour started with ${tourEntries.length} individual research areas`);
+    console.log(`📊 Total research areas in tour: ${tourEntries.length}`);
   };
 
   const stopPlay = () => {
@@ -345,46 +398,54 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
   };
 
   const navigateToMarker = (index: number) => {
-    if (index >= clusteredMarkers.length) {
-      // End of markers, stop playing
+    if (index >= tourEntries.length) {
+      // End of tour entries, stop playing
       stopPlay();
       return;
     }
 
-    const marker = clusteredMarkers[index];
+    const researchArea = tourEntries[index];
     
     // Determine appropriate zoom level based on location
-    const getZoomLevel = (marker: MarkerCluster) => {
-      // Check if marker is in Utah (approximate bounds)
-      const isInUtah = marker.latitude >= 37.0 && marker.latitude <= 42.0 && 
-                       marker.longitude >= -114.0 && marker.longitude <= -109.0;
+    const getZoomLevel = (area: ResearchArea) => {
+      // Check if research area is campus-focused
+      if (area.mapFocus === 'Campus') {
+        // For campus areas, use campus view zoom level
+        return 16;
+      }
+      
+      // Check if area is in Salt Lake Valley (approximate bounds)
+      const isInSaltLakeValley = area.latitude >= 40.4 && area.latitude <= 40.9 && 
+                                 area.longitude >= -112.2 && area.longitude <= -111.6;
+      
+      if (isInSaltLakeValley) {
+        // For Salt Lake Valley areas, use 10x zoom level
+        return 10;
+      }
+      
+      // Check if area is in Utah (approximate bounds)
+      const isInUtah = area.latitude >= 37.0 && area.latitude <= 42.0 && 
+                       area.longitude >= -114.0 && area.longitude <= -109.0;
       
       if (isInUtah) {
-        // For Utah markers, use moderate zoom to show regional context
-        return Math.max(viewState.zoom, 10);
+        // For Utah areas, use Utah view zoom level
+        return 6.5;
       } else {
-        // For international/out-of-state markers, use much higher zoom for better context
-        return Math.max(viewState.zoom, 6);
+        // For international/out-of-state areas, use 3x zoom
+        return 3;
       }
     };
     
-    // Navigate to marker location with appropriate zoom
+    // Navigate to research area location with appropriate zoom
     setViewState({
-      longitude: marker.longitude,
-      latitude: marker.latitude,
-      zoom: getZoomLevel(marker)
+      longitude: researchArea.longitude,
+      latitude: researchArea.latitude,
+      zoom: getZoomLevel(researchArea)
     });
 
-    // In tour mode, always show individual research areas, even if they're part of a cluster
-    if (marker.isCluster) {
-      // For clusters in tour mode, show the first research area individually
-      setSelectedArea(marker.areas[0]);
-      setSelectedCluster(null);
-    } else {
-      // For single markers, show the area as usual
-      setSelectedArea(marker.areas[0]);
-      setSelectedCluster(null);
-    }
+    // Show the individual research area
+    setSelectedArea(researchArea);
+    setSelectedCluster(null);
     setSidePanelOpen(true);
 
     // Clear any existing timers before setting new ones
@@ -404,7 +465,7 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
       setPlayProgress(Math.min(progress, 100));
     }, 100);
 
-    // Set timer for next marker (1 minute = 60000ms)
+    // Set timer for next area (1 minute = 60000ms)
     playTimerRef.current = setTimeout(() => {
       setCurrentMarkerIndex(index + 1);
       setPlayProgress(0);
@@ -418,7 +479,7 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
 
   // Effect to handle play state changes
   useEffect(() => {
-    if (isPlaying && currentMarkerIndex < clusteredMarkers.length) {
+    if (isPlaying && currentMarkerIndex < tourEntries.length) {
       navigateToMarker(currentMarkerIndex);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -438,13 +499,13 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
 
   const getClusterColor = (areas: ResearchArea[]) => {
     if (areas.length === 1) {
-      return getDepartmentColor(areas[0].category);
+      return getDepartmentColor(areas[0].department);
     }
     
     // For clusters, use the most common department color
     const deptCounts: { [key: string]: number } = {};
     areas.forEach(area => {
-      deptCounts[area.category] = (deptCounts[area.category] || 0) + 1;
+      deptCounts[area.department] = (deptCounts[area.department] || 0) + 1;
     });
     
     const mostCommonDept = Object.entries(deptCounts).reduce((a, b) => a[1] > b[1] ? a : b)[0];
@@ -453,33 +514,43 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
 
   const getMarkerStyles = (cluster: MarkerCluster, isHovered: boolean = false) => {
     const isSelected = cluster.id === 'selected-cluster';
-    const isCurrentlyToured = isPlaying && clusteredMarkers[currentMarkerIndex]?.id === cluster.id;
+    const isCurrentlyToured = isPlaying && tourEntries[currentMarkerIndex] && 
+      cluster.areas.some(area => area.name === tourEntries[currentMarkerIndex].name && 
+                                area.researcherName === tourEntries[currentMarkerIndex].researcherName);
     const isSpecial = isSelected || isCurrentlyToured;
-    const baseColor = isSpecial ? '#ff6b35' : getClusterColor(cluster.areas); // Bright orange for selected or currently toured
-    const size = cluster.isCluster ? 
+    
+    // Make toured markers significantly bigger
+    const baseSize = cluster.isCluster ? 
       Math.min(60, Math.max(30, 20 + cluster.areas.length * 3)) : 
       28;
+    const size = isCurrentlyToured ? baseSize * 3 : baseSize; // 3x bigger for toured markers
     
-    const scale = isHovered ? 1.1 : (isSpecial ? 1.15 : 1); // Selected/toured markers are slightly larger
-    const shadow = isSpecial ? 
-      '0 8px 25px rgba(255, 107, 53, 0.4), 0 0 0 3px rgba(255, 107, 53, 0.2)' : 
-      (isHovered ? '0 6px 20px rgba(26,26,26,0.3)' : '0 2px 10px rgba(26,26,26,0.2)');
+    const scale = isHovered ? 1.1 : (isCurrentlyToured ? 1.3 : (isSelected ? 1.15 : 1)); // Even bigger scale for toured markers
+    
+    // Enhanced shadow and glow for toured markers
+    const shadow = isCurrentlyToured ? 
+      '0 12px 35px rgba(138, 43, 226, 0.6), 0 0 0 4px rgba(138, 43, 226, 0.3), 0 0 20px rgba(138, 43, 226, 0.4)' : 
+      (isSelected ? '0 8px 25px rgba(255, 107, 53, 0.4), 0 0 0 3px rgba(255, 107, 53, 0.2)' : 
+      (isHovered ? '0 6px 20px rgba(26,26,26,0.3)' : '0 2px 10px rgba(26,26,26,0.2)'));
+    
+    // Color logic: Purple for toured markers, orange for selected markers, department color for others
+    const finalColor = isCurrentlyToured ? '#8A2BE2' : (isSelected ? '#ff6b35' : getClusterColor(cluster.areas));
     
     // Regular circular styling for all markers (we'll handle the pin shape in the JSX)
     return {
       position: 'relative' as const,
       width: `${size}px`,
       height: `${size}px`,
-      backgroundColor: baseColor,
+      backgroundColor: finalColor,
       borderRadius: '50%',
-      border: `2px solid ${isSpecial ? '#ffffff' : (isHovered ? '#f9f6ef' : '#ffffff')}`,
+      border: `${isCurrentlyToured ? '3px' : '2px'} solid ${isCurrentlyToured ? '#ffffff' : (isSpecial ? '#ffffff' : (isHovered ? '#f9f6ef' : '#ffffff'))}`,
       cursor: 'pointer',
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
       fontSize: cluster.isCluster ? 
-        `${Math.min(14, Math.max(10, 8 + cluster.areas.length))}px` : 
-        '14px',
+        `${Math.min(18, Math.max(12, (8 + cluster.areas.length) * (isCurrentlyToured ? 1.2 : 1)))}px` : 
+        `${isCurrentlyToured ? 18 : 14}px`, // Bigger font for toured markers
       fontWeight: '700',
       color: '#ffffff',
       fontFamily: 'Sora, sans-serif',
@@ -487,7 +558,7 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
       transform: `scale(${scale})`,
       transformOrigin: 'center',
       transition: 'transform 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease',
-      zIndex: isSpecial ? 1002 : (isHovered ? 1000 : 'auto'),
+      zIndex: isCurrentlyToured ? 1003 : (isSpecial ? 1002 : (isHovered ? 1000 : 'auto')), // Highest z-index for toured markers
       textShadow: '0 1px 2px rgba(26,26,26,0.3)',
     };
   };
@@ -546,7 +617,7 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
   };
 
   const goToNextMarker = () => {
-    if (currentMarkerIndex < clusteredMarkers.length - 1) {
+    if (currentMarkerIndex < tourEntries.length - 1) {
       setCurrentMarkerIndex(prev => prev + 1);
     }
   };
@@ -579,7 +650,9 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
           {/* Enhanced clustered research area markers */}
           {clusteredMarkers.map((cluster) => {
             const isHovered = hoveredMarkerId === cluster.id;
-            const isCurrentlyToured = isPlaying && clusteredMarkers[currentMarkerIndex]?.id === cluster.id;
+            const isCurrentlyToured = isPlaying && tourEntries[currentMarkerIndex] && 
+              cluster.areas.some(area => area.name === tourEntries[currentMarkerIndex].name && 
+                                area.researcherName === tourEntries[currentMarkerIndex].researcherName);
             const isSpecial = cluster.id === 'selected-cluster' || isCurrentlyToured;
             
             // In tour mode, treat clusters as individual markers for visual purposes
@@ -611,7 +684,7 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
                     onMouseLeave={() => setHoveredMarkerId(null)}
                   >
                     <MapPinIcon 
-                      color="#ff6b35"
+                      color={isCurrentlyToured ? '#8A2BE2' : '#ff6b35'}
                       size={28} 
                     />
                     
@@ -755,7 +828,7 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
           {!isPlaying ? (
             <button
               onClick={startPlay}
-              disabled={clusteredMarkers.length === 0}
+              disabled={tourEntries.length === 0}
               style={{
                 backgroundColor: '#1a1a1a',
                 color: '#f9f6ef',
@@ -765,14 +838,14 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
                 fontSize: '11px',
                 fontWeight: '600',
                 fontFamily: 'Sora, sans-serif',
-                cursor: clusteredMarkers.length === 0 ? 'not-allowed' : 'pointer',
+                cursor: tourEntries.length === 0 ? 'not-allowed' : 'pointer',
                 boxShadow: '0 2px 8px rgba(26,26,26,0.25)',
                 transition: 'all 0.2s ease',
                 textTransform: 'uppercase',
                 letterSpacing: '0.05em',
                 minWidth: '140px',
                 textAlign: 'center',
-                opacity: clusteredMarkers.length === 0 ? 0.5 : 1,
+                opacity: tourEntries.length === 0 ? 0.5 : 1,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -781,7 +854,7 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
                 overflow: 'hidden'
               }}
               onMouseEnter={(e) => {
-                if (clusteredMarkers.length > 0) {
+                if (tourEntries.length > 0) {
                   e.currentTarget.style.backgroundColor = '#2d7d32';
                   e.currentTarget.style.transform = 'translateY(-1px)';
                 }
@@ -852,25 +925,8 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
               display: 'flex',
               alignItems: 'center',
               gap: '12px',
-              minWidth: '200px'
+              minWidth: '120px'
             }}>
-              <div style={{
-                fontSize: '10px',
-                fontWeight: '600',
-                color: '#1a1a1a',
-                textTransform: 'uppercase',
-                letterSpacing: '0.05em',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'flex-start',
-                gap: '1px'
-              }}>
-                <div>Location {currentMarkerIndex + 1} / {clusteredMarkers.length}</div>
-                <div style={{ fontSize: '8px', opacity: 0.7 }}>
-                  {clusteredMarkers.reduce((sum, marker) => sum + marker.areas.length, 0)} Research Areas
-                </div>
-              </div>
-              
               <div style={{
                 display: 'flex',
                 gap: '4px'
@@ -911,30 +967,30 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
                 {/* Next button */}
                 <button
                   onClick={goToNextMarker}
-                  disabled={currentMarkerIndex >= clusteredMarkers.length - 1}
+                  disabled={currentMarkerIndex >= tourEntries.length - 1}
                   style={{
-                    backgroundColor: currentMarkerIndex >= clusteredMarkers.length - 1 ? 'rgba(26,26,26,0.2)' : '#1a1a1a',
-                    color: currentMarkerIndex >= clusteredMarkers.length - 1 ? 'rgba(26,26,26,0.4)' : '#f9f6ef',
+                    backgroundColor: currentMarkerIndex >= tourEntries.length - 1 ? 'rgba(26,26,26,0.2)' : '#1a1a1a',
+                    color: currentMarkerIndex >= tourEntries.length - 1 ? 'rgba(26,26,26,0.4)' : '#f9f6ef',
                     border: 'none',
                     padding: '8px 10px',
                     borderRadius: '2px',
                     fontSize: '12px',
                     fontWeight: '600',
                     fontFamily: 'Sora, sans-serif',
-                    cursor: currentMarkerIndex >= clusteredMarkers.length - 1 ? 'not-allowed' : 'pointer',
+                    cursor: currentMarkerIndex >= tourEntries.length - 1 ? 'not-allowed' : 'pointer',
                     transition: 'all 0.2s ease',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    opacity: currentMarkerIndex >= clusteredMarkers.length - 1 ? 0.5 : 1
+                    opacity: currentMarkerIndex >= tourEntries.length - 1 ? 0.5 : 1
                   }}
                   onMouseEnter={(e) => {
-                    if (currentMarkerIndex < clusteredMarkers.length - 1) {
+                    if (currentMarkerIndex < tourEntries.length - 1) {
                       e.currentTarget.style.backgroundColor = '#333333';
                     }
                   }}
                   onMouseLeave={(e) => {
-                    e.currentTarget.style.backgroundColor = currentMarkerIndex >= clusteredMarkers.length - 1 ? 'rgba(26,26,26,0.2)' : '#1a1a1a';
+                    e.currentTarget.style.backgroundColor = currentMarkerIndex >= tourEntries.length - 1 ? 'rgba(26,26,26,0.2)' : '#1a1a1a';
                   }}
                   title="Next"
                 >
@@ -1230,16 +1286,6 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
                     marginTop: '8px'
                   }}>
                     <div style={{
-                      fontSize: '9px',
-                      fontWeight: '600',
-                      color: '#1a1a1a',
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.05em'
-                    }}>
-                      {currentMarkerIndex + 1} / {clusteredMarkers.length}
-                    </div>
-                    
-                    <div style={{
                       display: 'flex',
                       gap: '2px'
                     }}>
@@ -1249,19 +1295,15 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
                         disabled={currentMarkerIndex <= 0}
                         style={{
                           backgroundColor: currentMarkerIndex <= 0 ? 'rgba(26,26,26,0.2)' : '#1a1a1a',
-                          color: currentMarkerIndex <= 0 ? 'rgba(26,26,26,0.4)' : '#f9f6ef',
+                          color: currentMarkerIndex <= 0 ? 'rgba(249,246,239,0.5)' : '#f9f6ef',
                           border: 'none',
-                          padding: '4px 6px',
+                          padding: '6px 10px',
                           borderRadius: '2px',
-                          fontSize: '8px',
+                          fontSize: '12px',
                           fontWeight: '600',
                           fontFamily: 'Sora, sans-serif',
                           cursor: currentMarkerIndex <= 0 ? 'not-allowed' : 'pointer',
-                          transition: 'all 0.2s ease',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          opacity: currentMarkerIndex <= 0 ? 0.5 : 1
+                          transition: 'all 0.2s ease'
                         }}
                         onMouseEnter={(e) => {
                           if (currentMarkerIndex > 0) {
@@ -1275,34 +1317,30 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
                       >
                         ◀
                       </button>
-
+                      
                       {/* Next button */}
                       <button
                         onClick={goToNextMarker}
-                        disabled={currentMarkerIndex >= clusteredMarkers.length - 1}
+                        disabled={currentMarkerIndex >= tourEntries.length - 1}
                         style={{
-                          backgroundColor: currentMarkerIndex >= clusteredMarkers.length - 1 ? 'rgba(26,26,26,0.2)' : '#1a1a1a',
-                          color: currentMarkerIndex >= clusteredMarkers.length - 1 ? 'rgba(26,26,26,0.4)' : '#f9f6ef',
+                          backgroundColor: currentMarkerIndex >= tourEntries.length - 1 ? 'rgba(26,26,26,0.2)' : '#1a1a1a',
+                          color: currentMarkerIndex >= tourEntries.length - 1 ? 'rgba(249,246,239,0.5)' : '#f9f6ef',
                           border: 'none',
-                          padding: '4px 6px',
+                          padding: '6px 10px',
                           borderRadius: '2px',
-                          fontSize: '8px',
+                          fontSize: '12px',
                           fontWeight: '600',
                           fontFamily: 'Sora, sans-serif',
-                          cursor: currentMarkerIndex >= clusteredMarkers.length - 1 ? 'not-allowed' : 'pointer',
-                          transition: 'all 0.2s ease',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          opacity: currentMarkerIndex >= clusteredMarkers.length - 1 ? 0.5 : 1
+                          cursor: currentMarkerIndex >= tourEntries.length - 1 ? 'not-allowed' : 'pointer',
+                          transition: 'all 0.2s ease'
                         }}
                         onMouseEnter={(e) => {
-                          if (currentMarkerIndex < clusteredMarkers.length - 1) {
+                          if (currentMarkerIndex < tourEntries.length - 1) {
                             e.currentTarget.style.backgroundColor = '#333333';
                           }
                         }}
                         onMouseLeave={(e) => {
-                          e.currentTarget.style.backgroundColor = currentMarkerIndex >= clusteredMarkers.length - 1 ? 'rgba(26,26,26,0.2)' : '#1a1a1a';
+                          e.currentTarget.style.backgroundColor = currentMarkerIndex >= tourEntries.length - 1 ? 'rgba(26,26,26,0.2)' : '#1a1a1a';
                         }}
                         title="Next"
                       >
@@ -1406,7 +1444,7 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
                 }}>
                   <span style={{
                     padding: '6px 12px',
-                    backgroundColor: getDepartmentColor(selectedArea.category),
+                    backgroundColor: getDepartmentColor(selectedArea.department),
                     color: '#f9f6ef',
                     borderRadius: '2px',
                     fontSize: '11px',
@@ -1414,7 +1452,7 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
                     textTransform: 'uppercase',
                     letterSpacing: '0.05em'
                   }}>
-                    {selectedArea.category}
+                    {selectedArea.department}
                   </span>
                   <span style={{
                     padding: '6px 12px',
@@ -1618,7 +1656,7 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
                         borderBottom: '1px solid #1a1a1a20',
                         cursor: 'pointer',
                         transition: 'all 0.2s ease',
-                        borderLeft: `4px solid ${getDepartmentColor(area.category)}`
+                        borderLeft: `4px solid ${getDepartmentColor(area.department)}`
                       }}
                       onMouseEnter={(e) => {
                         e.currentTarget.style.backgroundColor = '#1a1a1a05';
@@ -1661,7 +1699,7 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
                       }}>
                         <span style={{
                           padding: '2px 8px',
-                          backgroundColor: getDepartmentColor(area.category),
+                          backgroundColor: getDepartmentColor(area.department),
                           color: '#f9f6ef',
                           borderRadius: '2px',
                           fontSize: '10px',
@@ -1669,7 +1707,7 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
                           textTransform: 'uppercase',
                           letterSpacing: '0.05em'
                         }}>
-                          {area.category}
+                          {area.department}
                         </span>
                       </div>
                     </div>
@@ -1736,7 +1774,7 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
                         borderBottom: '1px solid #1a1a1a20',
                         cursor: 'pointer',
                         transition: 'all 0.2s ease',
-                        borderLeft: `4px solid ${getDepartmentColor(area.category)}`
+                        borderLeft: `4px solid ${getDepartmentColor(area.department)}`
                       }}
                       onMouseEnter={(e) => {
                         e.currentTarget.style.backgroundColor = '#1a1a1a05';
@@ -1791,7 +1829,7 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
                       }}>
                         <span style={{
                           padding: '3px 8px',
-                          backgroundColor: getDepartmentColor(area.category),
+                          backgroundColor: getDepartmentColor(area.department),
                           color: '#f9f6ef',
                           borderRadius: '2px',
                           fontSize: '10px',
@@ -1799,7 +1837,7 @@ const MapComponent: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
                           textTransform: 'uppercase',
                           letterSpacing: '0.05em'
                         }}>
-                          {area.category}
+                          {area.department}
                         </span>
                         <span style={{
                           padding: '3px 8px',
