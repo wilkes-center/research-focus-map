@@ -1,0 +1,15 @@
+{
+  "files": {
+    "main.css": "/research-focus-map/static/css/main.7abd674e.css",
+    "main.js": "/research-focus-map/static/js/main.c39c2412.js",
+    "static/js/879.0803206b.chunk.js": "/research-focus-map/static/js/879.0803206b.chunk.js",
+    "index.html": "/research-focus-map/index.html",
+    "main.7abd674e.css.map": "/research-focus-map/static/css/main.7abd674e.css.map",
+    "main.c39c2412.js.map": "/research-focus-map/static/js/main.c39c2412.js.map",
+    "879.0803206b.chunk.js.map": "/research-focus-map/static/js/879.0803206b.chunk.js.map"
+  },
+  "entrypoints": [
+    "static/css/main.7abd674e.css",
+    "static/js/main.c39c2412.js"
+  ]
+}
