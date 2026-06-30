@@ -87,6 +87,8 @@ const clusterMarkers = (areas: ResearchArea[], zoom: number, selectedArea?: Rese
   return clusters;
 };
 
+const MAPBOX_TOKEN = process.env.REACT_APP_MAPBOX_TOKEN;
+
 const MapContainer: React.FC<MapComponentProps> = ({ researchAreas, selectedFilters }) => {
   const [selectedArea, setSelectedArea] = useState<ResearchArea | null>(null);
   const [selectedCluster, setSelectedCluster] = useState<MarkerCluster | null>(null);
@@ -495,6 +497,33 @@ const MapContainer: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
     });
   };
 
+  if (!MAPBOX_TOKEN) {
+    return (
+      <div style={{
+        width: '100%',
+        height: '100vh',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: '12px',
+        padding: '24px',
+        textAlign: 'center',
+        background: '#f9f6ef',
+        color: '#1a1a1a',
+        fontFamily: 'system-ui, sans-serif'
+      }}>
+        <h2 style={{ margin: 0 }}>Mapbox access token missing</h2>
+        <p style={{ maxWidth: 520, lineHeight: 1.5 }}>
+          Create a <code>.env</code> file in the project root with{' '}
+          <code>REACT_APP_MAPBOX_TOKEN=your_token</code> (get one at{' '}
+          <a href="https://account.mapbox.com/access-tokens/" target="_blank" rel="noreferrer">account.mapbox.com</a>),
+          then restart <code>pnpm start</code>.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div style={{ position: 'relative', width: '100%', height: '100vh', display: 'flex' }}>
       <div style={{ 
@@ -507,7 +536,7 @@ const MapContainer: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
           onMove={evt => setViewState(evt.viewState)}
           style={{ width: '100%', height: '100vh' }}
           mapStyle="mapbox://styles/mapbox/streets-v11"
-          mapboxAccessToken={process.env.REACT_APP_MAPBOX_TOKEN}
+          mapboxAccessToken={MAPBOX_TOKEN}
           renderWorldCopies={true}
           minZoom={MAP_CONFIG.ZOOM.MIN}
           maxZoom={MAP_CONFIG.ZOOM.MAX}
@@ -516,7 +545,7 @@ const MapContainer: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
           }}
           onLoad={() => {
             console.log('Map loaded successfully');
-            console.log('Mapbox token starts with:', process.env.REACT_APP_MAPBOX_TOKEN?.substring(0, 20));
+            console.log('Mapbox token starts with:', MAPBOX_TOKEN?.substring(0, 20));
           }}
         >
           <MarkerRenderer

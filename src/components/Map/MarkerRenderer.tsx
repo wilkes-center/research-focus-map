@@ -5,6 +5,8 @@ import { ResearchArea } from '../../types/ResearchArea';
 import { getDepartmentColor } from '../../utils/mapUtils';
 import { MARKER_CONFIG, COLORS, TYPOGRAPHY, ANIMATIONS } from '../../constants/mapConfig';
 
+type MarkerClickEvent = { originalEvent: MouseEvent };
+
 interface MarkerCluster {
   id: string;
   longitude: number;
@@ -151,7 +153,7 @@ const MarkerRenderer: React.FC<MarkerRendererProps> = ({
             longitude={cluster.longitude}
             latitude={cluster.latitude}
             anchor="bottom"
-            onClick={e => {
+            onClick={(e: MarkerClickEvent) => {
               e.originalEvent.stopPropagation();
               onClusterClick(cluster);
             }}
