@@ -66,6 +66,38 @@ export const getDepartmentColor = (department: string): string => {
   return DEPARTMENT_COLORS[department] || '#1a1a1a'; // Default Olympic Park Obsidian
 };
 
+// Season ordering within a calendar year (higher = more recent)
+const SEASON_RANK: { [key: string]: number } = {
+  spring: 0,
+  summer: 1,
+  fall: 2
+};
+
+const parseTerm = (term: string): { year: number; season: number } | null => {
+  const match = term.trim().match(/^(Spring|Summer|Fall)\s+(\d{2,4})$/i);
+  if (!match) return null;
+  let year = parseInt(match[2], 10);
+  if (year < 100) year += 2000;
+  return { year, season: SEASON_RANK[match[1].toLowerCase()] };
+};
+
+// Compare two terms so the most recent sorts first (e.g. Summer 26 before Spring 26 before Fall 25)
+export const compareTermsDesc = (a: string, b: string): number => {
+  const pa = parseTerm(a);
+  const pb = parseTerm(b);
+  if (pa && pb) {
+    if (pa.year !== pb.year) return pb.year - pa.year;
+    return pb.season - pa.season;
+  }
+  if (pa) return -1;
+  if (pb) return 1;
+  return a.localeCompare(b);
+};
+
+// Sort unique terms chronologically, most recent first
+export const sortTermsChronologically = (terms: string[]): string[] =>
+  [...terms].sort(compareTermsDesc);
+
 // Get all unique departments from research areas
 export const getUniqueDepartments = (researchAreas: ResearchArea[]): string[] => {
   const departments = new Set(researchAreas.map(area => area.department));

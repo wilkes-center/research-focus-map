@@ -8,6 +8,7 @@ import LoadingAnimation from './components/LoadingAnimation';
 import { ResearchArea } from './types/ResearchArea';
 import { loadResearchFocusData } from './utils/csvParser';
 import { APP_CONFIG } from './constants/mapConfig';
+import { sortTermsChronologically } from './utils/mapUtils';
 import './App.css';
 
 interface FilterState {
@@ -84,7 +85,7 @@ const App: React.FC = () => {
   };
   
   const departments = Array.from(new Set(researchAreas.map(area => area.department))).sort();
-  const terms = Array.from(new Set(researchAreas.map(area => area.term))).sort();
+  const terms = sortTermsChronologically(Array.from(new Set(researchAreas.map(area => area.term))));
   const types = Array.from(new Set(researchAreas.map(area => area.type))).sort();
 
   const filteredResearchAreas = researchAreas.filter(area => {

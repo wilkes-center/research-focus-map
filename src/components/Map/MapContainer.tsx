@@ -6,6 +6,7 @@ import NavigationButtons from './NavigationButtons';
 import MarkerRenderer from './MarkerRenderer';
 import SidePanel from './SidePanel';
 import { MAP_CONFIG, TOUR_CONFIG, UI_CONFIG } from '../../constants/mapConfig';
+import { compareTermsDesc } from '../../utils/mapUtils';
 
 interface FilterState {
   departments: string[];
@@ -138,25 +139,7 @@ const MapContainer: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
     let areasToCluster = isPlaying ? researchAreas : filteredAreas;
     
     if (isPlaying) {
-      const termOrder = [
-        'Summer 25', 'Spring 25', 'Fall 24', 'Summer 24', 'Spring 24', 'Fall 23', 
-        'Summer 23', 'Spring 23', 'Fall 22', 'Summer 22', 'Spring 22', 'Fall 21',
-        'Summer 21', 'Spring 21', 'Fall 20', 'Summer 20', 'Spring 20'
-      ];
-      
-      areasToCluster = [...areasToCluster].sort((a, b) => {
-        const aIndex = termOrder.indexOf(a.term);
-        const bIndex = termOrder.indexOf(b.term);
-        
-        if (aIndex !== -1 && bIndex !== -1) {
-          return aIndex - bIndex;
-        }
-        
-        if (aIndex !== -1) return -1;
-        if (bIndex !== -1) return 1;
-        
-        return a.term.localeCompare(b.term);
-      });
+      areasToCluster = [...areasToCluster].sort((a, b) => compareTermsDesc(a.term, b.term));
     }
     
     const markers = clusterMarkers(areasToCluster, viewState.zoom, selectedArea);
@@ -180,27 +163,7 @@ const MapContainer: React.FC<MapComponentProps> = ({ researchAreas, selectedFilt
 
   // Create individual tour entries for tour mode
   const tourEntries = useMemo(() => {
-    const termOrder = [
-      'Summer 25', 'Spring 25', 'Fall 24', 'Summer 24', 'Spring 24', 'Fall 23', 
-      'Summer 23', 'Spring 23', 'Fall 22', 'Summer 22', 'Spring 22', 'Fall 21',
-      'Summer 21', 'Spring 21', 'Fall 20', 'Summer 20', 'Spring 20'
-    ];
-    
-    const sortedAreas = [...researchAreas].sort((a, b) => {
-      const aIndex = termOrder.indexOf(a.term);
-      const bIndex = termOrder.indexOf(b.term);
-      
-      if (aIndex !== -1 && bIndex !== -1) {
-        return aIndex - bIndex;
-      }
-      
-      if (aIndex !== -1) return -1;
-      if (bIndex !== -1) return 1;
-      
-      return a.term.localeCompare(b.term);
-    });
-    
-    return sortedAreas;
+    return [...researchAreas].sort((a, b) => compareTermsDesc(a.term, b.term));
   }, [researchAreas]);
 
   // Reset UofU focus when zooming out
